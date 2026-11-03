@@ -406,11 +406,15 @@ val appleMusicDiLinkPatch = bytecodePatch(
         // isAtLeast30(int) and touches only v0:
         //   original instruction 0 = Window.getInsetsController() (API 30)
         //   original instruction 1 = its move-result-object
-        //   original instruction 2 = invoke-direct <init>(WindowInsetsController, x2/v), the
-        //                            delegation that runs Object.<init> and fills f82859a/b
-        // The constructor body is untouched: on API < 30 the delegating call receives null (which
-        // merges with the WindowInsetsController produced by the guarded branch, so the verifier
-        // never needs to resolve that type at the call site).
+        //   original instruction 2 = invoke-direct <init>(WindowInsetsController, x2/v)
+        //   original instruction 3 = iput-object window -> c
+        //   original instruction 4 = return-void
+        //
+        // On API < 30 the two branches never meet: the legacy path does its own Object.<init>
+        // (the same super call the typed constructor performs), sets b (impl) and c (window) and
+        // returns, so the invoke-direct whose prototype mentions the missing
+        // android.view.WindowInsetsController is NEVER executed. f82859a (the controller) keeps its
+        // default null, so no instruction of the legacy path references that type.
         InsetsImplWindowInitFingerprint.method.apply {
             val instructions = implementation?.instructions ?: error("${W_IMPL}init has no code")
             check(instructions.size == 5) { "${W_IMPL}init(Window, x2/v): expected 5 instructions" }
@@ -427,13 +431,14 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     invoke-static {v0}, $INSETS_COMPAT->isAtLeast30(I)Z
                     move-result v0
                     if-eqz v0, :legacy
-                    goto :supported
+                    goto :orig
                     :legacy
-                    const/4 v0, 0x0
-                    goto :call
+                    invoke-direct {v1}, Ljava/lang/Object;-><init>()V
+                    iput-object v3, v1, ${W_IMPL}->b:Lx2/v;
+                    iput-object v2, v1, ${W_IMPL}->c:Landroid/view/Window;
+                    return-void
                 """,
-                ExternalLabel("supported", getInstruction(0)),
-                ExternalLabel("call", getInstruction(2)),
+                ExternalLabel("orig", getInstruction(0)),
             )
         }
 
