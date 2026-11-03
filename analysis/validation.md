@@ -36,6 +36,15 @@ Sem o patch, `m1.x()` classificaria 1080/480dpi = 360dp como `PHONE` e `MainActi
 Isso prova compatibilidade **apply-time** entre o bundle (`Patcher-Version: 1.6.0`) e o patcher do
 Manager (1.15.x).
 
+### Metadata (1.0.2)
+
+O bundle declara `apkFileType = XAPK` e os SHA-256 das duas assinaturas do APK original (Apple Inc.
+para API < 33 e Google Inc. para API 33+, rotação de certificado). Com isso:
+
+- o XAPK original passou na verificação de assinatura e o repatch com a source 1.0.2 rodou sem aviso;
+- um app **já patcheado** instalado aparece como **“Não verificado”** no Manager (assinatura do
+  Manager ≠ original) — é o comportamento esperado, não um defeito do bundle.
+
 ## 4. Startup sem Google Play Services
 
 `pm disable-user com.google.android.gms` + `pm clear com.apple.android.music` + cold start:
