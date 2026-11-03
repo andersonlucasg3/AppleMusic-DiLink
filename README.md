@@ -69,6 +69,16 @@ $env:GITHUB_TOKEN = $(gh auth token)
 .\gradlew.bat :patches:generatePatchesList
 ```
 
+Para **publicar/instalar no Morphe mobile**, o `.mpp` precisa conter `classes.dex` (o Manager
+carrega via `loadPatchesFromDex`). O plugin 1.3.3 só funde o dex no `:patches:buildAndroid`:
+
+```powershell
+.\gradlew.bat :patches:buildAndroid
+```
+
+O `:patches:build` sozinho gera um bundle só com classes — suficiente para a CLI desktop, mas
+rejeitado pelo Manager com "Patch bundle is missing dex entries".
+
 `GRADLE_USER_HOME` fica dentro do repo (`.gradle-user/`, no `.gitignore`); o token nunca é escrito
 em arquivo versionado — só passado por variável de ambiente.
 

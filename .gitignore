@@ -41,6 +41,9 @@ google-services.json
 # Morphe Desktop runtime data (keystore, caches) and local tooling binaries
 tools/
 
+# Throwaway harness that loads the built .mpp with morphe-patcher 1.6.0/1.15.0/2.1.0
+.compat-harness/
+
 # Bulk reverse-engineering artifacts (keep the report and the small evidence dumps)
 analysis/jadx_src/
 analysis/jadx_res/
