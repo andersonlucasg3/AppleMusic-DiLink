@@ -54,6 +54,11 @@ para API < 33 e Google Inc. para API 33+, rotação de certificado). Com isso:
 - Nenhum diálogo de Play age-signals (degrada sem GMS).
 - GMS reativado (`enabled=1`) e Play Protect restaurado (`verifier_verify_adb_installs=1`).
 
+**Login sem GMS**: ainda com o Play Services desativado, tocar em **"Iniciar sessão"** abriu o
+formulário "Continue com o e-mail" da Apple (tela nativa/web do fluxo de auth), sem crash e sem
+erro de integrity. Ou seja, o caminho de autenticação não depende do GMS. O login completo não foi
+feito (sem credenciais).
+
 ## 5. Caminho legado API < 30 (build de debug)
 
 `isAtLeast30()` forçado a `false` (build temporário, não commitado) para executar em ART real o
