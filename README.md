@@ -8,8 +8,9 @@ GMS/Play Integrity.
 
 > **Estado atual:** bundle funcional com **2 patches reais** — landscape/tablet, `minSdk` 29,
 > backport das chamadas API 30 e bypass do Play Integrity. Validado: build, aplicação no APK,
-> bytecode, carregamento no patcher do Manager (1.15.0) e **fluxo completo no Morphe mobile**
-> (source → patch → instalação → app abre). No Galaxy S24/Android 16 o patch de landscape também
+> bytecode, carregamento no patcher do Manager (1.15.0), **fluxo completo no Morphe mobile**
+> (source → patch → instalação → app abre) e **startup sem GMS** (Play Services desativado no S24:
+> app abriu e carregou a home sem crash). No Galaxy S24/Android 16 o patch de landscape também
 > foi confirmado (`requestedOrientation=UNSPECIFIED`, UI em `land`). **Falta o runtime no DiLink
 > (Android 10)**, que é o único alvo que exercita o backport API 29.
 
