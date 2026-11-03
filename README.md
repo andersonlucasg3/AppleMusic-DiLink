@@ -6,9 +6,10 @@ Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.
 Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 28/29 e rodar sem
 GMS/Play Integrity.
 
-> **Estado atual:** bundle funcional com **2 patches reais** — landscape/tablet, `minSdk` 30→28,
-> guarda de API 30 no seletor de emoji e bypass do Play Integrity. Build, aplicação no APK e
-> verificação de bytecode estão validados localmente; **runtime no DiLink ainda não testado**.
+> **Estado atual:** bundle funcional com **2 patches reais** — landscape/tablet, `minSdk` 29,
+> backport das chamadas API 30 e bypass do Play Integrity. Build, aplicação no APK, verificação de
+> bytecode e **carregamento no patcher do Morphe Manager (1.15.0)** estão validados localmente;
+> **runtime no DiLink ainda não testado**.
 
 ## Patches
 
