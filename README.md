@@ -7,9 +7,11 @@ Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 
 GMS/Play Integrity.
 
 > **Estado atual:** bundle funcional com **2 patches reais** — landscape/tablet, `minSdk` 29,
-> backport das chamadas API 30 e bypass do Play Integrity. Build, aplicação no APK, verificação de
-> bytecode e **carregamento no patcher do Morphe Manager (1.15.0)** estão validados localmente;
-> **runtime no DiLink ainda não testado**.
+> backport das chamadas API 30 e bypass do Play Integrity. Validado: build, aplicação no APK,
+> bytecode, carregamento no patcher do Manager (1.15.0) e **fluxo completo no Morphe mobile**
+> (source → patch → instalação → app abre). No Galaxy S24/Android 16 o patch de landscape também
+> foi confirmado (`requestedOrientation=UNSPECIFIED`, UI em `land`). **Falta o runtime no DiLink
+> (Android 10)**, que é o único alvo que exercita o backport API 29.
 
 ## Patches
 
@@ -157,9 +159,9 @@ O Apple Music não é distribuído por este repositório, então o Morphe não o
 download: forneça o **XAPK 7.0.0 (vc 1614)** na tela de seleção de APK. O Manager funde os
 splits e aplica os mesmos patches da CLI.
 
-> O bundle foi compilado contra `morphe-patcher` 1.6.0; o Morphe Manager usa a linha 1.15.x.
-> Se a source aparecer com **Update Morphe** ou falhar ao carregar, o scaffold precisa subir para
-> o template atual (plugin 2.1.0) — ainda não testado em aparelho.
+> **Testado no Morphe Manager 2.3.0 (Galaxy S24, Android 16):** source carregada, Apple Music 7.0.0
+> reconhecido, patch aplicado (1 patch) e APK instalado/aberto pelo próprio Manager. O bundle usa
+> `Patcher-Version: 1.6.0`; o Manager aceita versões maiores e não exige atualização.
 
 ## Instalar no DiLink
 

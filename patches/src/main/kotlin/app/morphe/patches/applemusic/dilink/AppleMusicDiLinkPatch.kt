@@ -33,6 +33,15 @@ private const val W_IMPL = "Lx2/W\$a;"
 private const val SDK_INT = "Landroid/os/Build\$VERSION;->SDK_INT:I"
 
 /**
+ * x2/v is androidx.core.view.SoftwareKeyboardControllerCompat (jadx: p468x2/C6812v for the outer
+ * class and p468x2/C6812v$a/$b for the impls). x2/v$b is Impl30: its show()/hide() call
+ * View.getWindowInsetsController() (API 30) with no guard, because R8 removed the SDK_INT
+ * selection when the app was built with minSdk 30. x2/v$a is Impl20, which only uses
+ * InputMethodManager and is safe on API 29.
+ */
+private const val V_IMPL20 = "Lx2/v\$a;"
+
+/**
  * m1.x() is the only method in the dex that contains "android.hardware.sensor.hinge_angle"
  * and the only one returning K; (m1.java:505-515). Forcing K.TABLET reaches every consumer,
  * including MainActivity's setRequestedOrientation(-1) decision (MainActivity.java:937-945).
@@ -145,6 +154,31 @@ internal object FullScreenVideoOnCreateFingerprint : Fingerprint(
     definingClass = "Lcom/apple/android/music/player2/FullScreenVideoActivity;",
     name = "onCreate",
     parameters = listOf("Landroid/os/Bundle;"),
+    returnType = "V",
+)
+
+/**
+ * x2/v$b.a()V — SoftwareKeyboardControllerCompat.Impl30.hide(): calls
+ * View.getWindowInsetsController() (API 30) and then WindowInsetsController.hide(ime).
+ * Called by E1/P.run() (Compose keyboard controller), Af/i (Material SearchView) and
+ * NewPlaylistFragment.openKeyboardForTitle.
+ */
+internal object SoftwareKeyboardHideFingerprint : Fingerprint(
+    definingClass = "Lx2/v\$b;",
+    name = "a",
+    parameters = emptyList(),
+    returnType = "V",
+)
+
+/**
+ * x2/v$b.b()V — SoftwareKeyboardControllerCompat.Impl30.show(): calls
+ * View.getWindowInsetsController() (API 30) and then WindowInsetsController.show(ime).
+ * Called by E1/P.run(), Af/h (Material SearchView) and NewPlaylistFragment.
+ */
+internal object SoftwareKeyboardShowFingerprint : Fingerprint(
+    definingClass = "Lx2/v\$b;",
+    name = "b",
+    parameters = emptyList(),
     returnType = "V",
 )
 
@@ -523,6 +557,35 @@ val appleMusicDiLinkPatch = bytecodePatch(
                 """,
                 ExternalLabel("insets", getInstruction(hideIndex + 1)),
             )
+        }
+
+        // x2/v$b.a()/b() (SoftwareKeyboardControllerCompat.Impl30 show/hide): the whole body is
+        // API 30 (View.getWindowInsetsController + WindowInsetsController.show/hide). On API < 30
+        // delegate to the Impl20 superclass, which only uses InputMethodManager, instead of
+        // throwing NoSuchMethodError. The register holding "this" is the last one of the frame
+        // (6 registers -> v5 in a(), 4 registers -> v3 in b()); v0-v2 are free in both.
+        for ((fingerprint, impl20Method) in listOf(
+            SoftwareKeyboardHideFingerprint to "a",
+            SoftwareKeyboardShowFingerprint to "b",
+        )) {
+            fingerprint.method.apply {
+                val method = implementation ?: error("$impl20Method has no implementation")
+                val self = "v${method.registerCount - 1}"
+                addInstructionsWithLabels(
+                    0,
+                    """
+                        sget v0, $SDK_INT
+                        invoke-static {v0}, $INSETS_COMPAT->isAtLeast30(I)Z
+                        move-result v0
+                        if-nez v0, :legacy
+                        goto :supported
+                        :legacy
+                        invoke-super {$self}, $V_IMPL20->$impl20Method()V
+                        return-void
+                    """,
+                    ExternalLabel("supported", getInstruction(0)),
+                )
+            }
         }
     }
 }
