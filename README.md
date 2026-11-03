@@ -91,11 +91,15 @@ Artefatos gerados em `patches/build/libs/`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `patches-1.0.0.mpp` | bundle aplicável (classes + `extensions/extension.mpe`) |
-| `patches-1.0.0-sources.mpp` | sources |
-| `patches-1.0.0-javadoc.mpp` | javadoc |
+| `patches-1.0.2.mpp` | bundle aplicável (classes + `extensions/extension.mpe`) |
+| `patches-1.0.2-sources.mpp` | sources |
+| `patches-1.0.2-javadoc.mpp` | javadoc |
 
 `generatePatchesList` reescreve `patches-list.json` (não editar à mão) e depende de `build`.
+
+> O gerador lê o **primeiro** `.mpp` de `build/libs/`. Se houver bundles antigos de versões
+> anteriores, rode `:patches:clean` (ou apague-os) antes de gerar, senão a lista sai com a versão
+> errada — foi o que aconteceu aqui com 1.0.0/1.0.1.
 
 > Sob o sandbox deste repo o Kotlin daemon não consegue abrir `~/.kotlin` e o build cai
 > automaticamente para compilação in-process (o build continua verde). Para evitar o erro no log:
@@ -118,7 +122,7 @@ java -jar tools\APKEditor-1.4.9.jar m -i .pipeline\splits -o .pipeline\merged.ap
 
 ```powershell
 java -jar tools\morphe-desktop-1.20.0-all.jar patch `
-  -p patches\build\libs\patches-1.0.0.mpp `
+  -p patches\build\libs\patches-1.0.2.mpp `
   -o .pipeline\applemusic-7.0.0-dilink-patched.apk `
   .pipeline\merged.apk
 ```
@@ -136,7 +140,7 @@ O Morphe Desktop também aceita bundle de splits e faz o merge sozinho:
 
 ```powershell
 java -jar tools\morphe-desktop-1.20.0-all.jar patch `
-  -p patches\build\libs\patches-1.0.0.mpp `
+  -p patches\build\libs\patches-1.0.2.mpp `
   -o .pipeline\applemusic-7.0.0-from-xapk.apk `
   apks\apple-music-7.0.0\AppleMusic_7.0.0_apkpure.xapk
 ```
@@ -154,8 +158,8 @@ e o repositório serve como *patch source*:
 
 - **Remote**: no Morphe → **Sources** → **+** → Remote →
   `github.com/andersonlucasg3/AppleMusic-DiLink`.
-- **Local**: baixe `patches-1.0.0.mpp` do release e abra no Morphe, ou
-  `adb push patches-1.0.0.mpp /sdcard/Download/` e abra o arquivo no aparelho.
+- **Local**: baixe `patches-1.0.2.mpp` do release e abra no Morphe, ou
+  `adb push patches-1.0.2.mpp /sdcard/Download/` e abra o arquivo no aparelho.
 
 O Apple Music não é distribuído por este repositório, então o Morphe não oferece link de
 download: forneça o **XAPK 7.0.0 (vc 1614)** na tela de seleção de APK. O Manager funde os
