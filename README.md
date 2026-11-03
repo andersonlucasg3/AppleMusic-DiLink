@@ -132,6 +132,24 @@ Outros comandos úteis da CLI (`java -jar tools\morphe-desktop-1.20.0-all.jar --
 - `list-versions --patches <mpp>` — versões de app declaradas na compatibilidade.
 - flags de `patch`: `-e/--enable`, `-d/--disable`, `--force`, `--striplibs`, `--unsigned`, `--keystore`.
 
+## Usar no app Morphe (Android)
+
+O bundle é publicado em [releases](https://github.com/andersonlucasg3/AppleMusic-DiLink/releases)
+e o repositório serve como *patch source*:
+
+- **Remote**: no Morphe → **Sources** → **+** → Remote →
+  `github.com/andersonlucasg3/AppleMusic-DiLink`.
+- **Local**: baixe `patches-1.0.0.mpp` do release e abra no Morphe, ou
+  `adb push patches-1.0.0.mpp /sdcard/Download/` e abra o arquivo no aparelho.
+
+O Apple Music não é distribuído por este repositório, então o Morphe não oferece link de
+download: forneça o **XAPK 7.0.0 (vc 1614)** na tela de seleção de APK. O Manager funde os
+splits e aplica os mesmos patches da CLI.
+
+> O bundle foi compilado contra `morphe-patcher` 1.6.0; o Morphe Manager usa a linha 1.15.x.
+> Se a source aparecer com **Update Morphe** ou falhar ao carregar, o scaffold precisa subir para
+> o template atual (plugin 2.1.0) — ainda não testado em aparelho.
+
 ## Instalar no DiLink
 
 Pré-requisito: ADB habilitado no head unit (Wi-Fi ADB ou USB host).
