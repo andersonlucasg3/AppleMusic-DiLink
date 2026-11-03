@@ -1,0 +1,60 @@
+{
+  "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
+  "version": "1.0.0",
+  "patches": [
+    {
+      "name": "Apple Music DiLink manifest",
+      "description": "Lowers minSdkVersion from 30 to 28 and removes the portrait lock of MLIChromeTabActivity.",
+      "default": false,
+      "dependencies": [],
+      "compatiblePackages": [
+        {
+          "packageName": "com.apple.android.music",
+          "name": "Apple Music (DiLink)",
+          "description": null,
+          "apkFileType": null,
+          "appIconColor": "#FA243C",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "7.0.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": null,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    },
+    {
+      "name": "Apple Music DiLink support",
+      "description": "Unlocks landscape rotation, lowers the API floor to Android 9/10 and bypasses Play Integrity.",
+      "default": true,
+      "dependencies": [
+        "ResourcePatch"
+      ],
+      "compatiblePackages": [
+        {
+          "packageName": "com.apple.android.music",
+          "name": "Apple Music (DiLink)",
+          "description": null,
+          "apkFileType": null,
+          "appIconColor": "#FA243C",
+          "signatures": null,
+          "targets": [
+            {
+              "version": "7.0.0",
+              "versionCodes": null,
+              "isExperimental": false,
+              "minSdk": null,
+              "description": null
+            }
+          ]
+        }
+      ],
+      "options": []
+    }
+  ]
+}

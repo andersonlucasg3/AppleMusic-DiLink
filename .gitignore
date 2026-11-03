@@ -1,5 +1,6 @@
 # Gradle files
 .gradle/
+.gradle-user/
 build/
 .kotlin/
 
@@ -33,3 +34,17 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Local patch pipeline (merged/patched APKs)
+.pipeline/
+
+# Morphe Desktop runtime data (keystore, caches) and local tooling binaries
+tools/
+
+# Bulk reverse-engineering artifacts (keep the report and the small evidence dumps)
+analysis/jadx_src/
+analysis/jadx_res/
+analysis/dex/
+analysis/_evidence/dex_strings.txt
+analysis/_evidence/defined_classes.txt
+apks/
