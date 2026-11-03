@@ -21,10 +21,13 @@ Evidências da análise (com `arquivo:linha`) em [`analysis/apple-music-7.0.0.md
 
 ### Limitações conhecidas
 
+- **Android 10 (API 29) ainda não funciona.** A varredura de APIs ([`analysis/api-levels.md`](analysis/api-levels.md))
+  mostrou que o R8 removeu os guards `SDK_INT >= 30` das próprias bibliotecas: o compat de insets
+  (`p468x2.W`) e `Objects.requireNonNullElse*` chamam API 30 sem checagem e derrubam a tela principal.
+  Para API 28 há ainda `m1.<clinit>` (`FontStyle`). O patch atual só cobre as guardas de UI já mapeadas
+  (emoji e nova playlist); o backport completo é trabalho pendente.
 - O bypass de integrity só cobre o lado Java. Se o servidor da Apple **exigir** o token, o próximo
   alvo é `libAMSKit.so` (nativo, FairPlay/FPDI) — não resolvido.
-- Só foram guardadas as chamadas API 30 conhecidas (`EmojiSearchFragment`); outras rotas raras
-  (`sharedUserId`, widgets, vídeo) não foram exercitadas em API 28/29.
 - O APK final é um **APK único merged** (a CLI funde os splits) e é assinado com `CN=Morphe`:
   é preciso desinstalar o Apple Music oficial antes de instalar o patcheado.
 

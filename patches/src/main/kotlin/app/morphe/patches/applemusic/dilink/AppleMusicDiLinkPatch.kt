@@ -40,6 +40,19 @@ internal object AppIntegrityTokenFingerprint : Fingerprint(
     },
 )
 
+/**
+ * openKeyboardForTitle() builds the androidx WindowInsetsControllerCompat wrapper
+ * (p468x2.W / x2.W$a), whose constructor calls Window.getInsetsController() (API 30)
+ * unconditionally. The app was built with minSdk 30, so R8 already removed the
+ * SDK_INT >= 30 fallback that the original compat class had; on API < 30 this path
+ * throws NoSuchMethodError before the dialog's keyboard is shown.
+ */
+internal object NewPlaylistKeyboardFingerprint : Fingerprint(
+    definingClass = "Lcom/apple/android/music/collection/mediaapi/fragment/NewPlaylistFragment;",
+    name = "openKeyboardForTitle",
+    returnType = "V",
+)
+
 @Suppress("unused")
 val appleMusicDiLinkPatch = bytecodePatch(
     name = "Apple Music DiLink support",
@@ -84,5 +97,22 @@ val appleMusicDiLinkPatch = bytecodePatch(
                 return-object v0
             """,
         )
+
+        // openKeyboardForTitle() has 5 registers and 1 parameter (this = v3), so v0/v1 are
+        // free. Skipping it on API < 30 avoids constructing the WindowInsetsControllerCompat
+        // wrapper, whose constructor calls Window.getInsetsController() (API 30). The only
+        // degradation is that the new-playlist dialog does not focus the title field.
+        NewPlaylistKeyboardFingerprint.method.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    sget v0, Landroid/os/Build${'$'}VERSION;->SDK_INT:I
+                    const/16 v1, 0x1e
+                    if-ge v0, v1, :supported
+                    return-void
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+            )
+        }
     }
 }
