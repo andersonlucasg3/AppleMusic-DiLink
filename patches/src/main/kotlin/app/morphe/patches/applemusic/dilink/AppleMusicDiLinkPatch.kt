@@ -12,7 +12,6 @@ import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c
 import com.android.tools.smali.dexlib2.iface.ClassDef
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
-import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction35c
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference
@@ -157,12 +156,6 @@ private class RedirectRule(
     val helperClass: String,
     val helperParameters: (MethodReference) -> List<String>,
     val expectedCalls: Int,
-    /**
-     * Return type of the helper, when it has to differ from the target method. Used by
-     * Window.getInsetsController: the helper returns Object so the extension stays loadable
-     * on API 29, and the call site gets an explicit check-cast back to the platform type.
-     */
-    val helperReturnType: (MethodReference) -> String = { it.returnType },
 )
 
 private fun Instruction.methodCalled(definingClass: String, names: Set<String>): MethodReference? {
@@ -217,7 +210,7 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
                             rule.helperClass,
                             reference.name,
                             rule.helperParameters(reference),
-                            rule.helperReturnType(reference),
+                            reference.returnType,
                         ),
                     ),
                 )
@@ -370,34 +363,44 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     helperParameters = { listOf("Ljava/lang/Object;", "I") },
                     expectedCalls = 2,
                 ),
-                // The only Window.getInsetsController() call in the dex, inside
-                // x2/W$a.<init>(Window, x2/v). The helper returns Object (see below).
-                RedirectRule(
-                    key = "Window.getInsetsController",
-                    targetClass = "Landroid/view/Window;",
-                    targetNames = setOf("getInsetsController"),
-                    helperClass = INSETS_COMPAT,
-                    helperParameters = { listOf("Landroid/view/Window;") },
-                    helperReturnType = { "Ljava/lang/Object;" },
-                    expectedCalls = 1,
-                ),
             ),
         )
 
-        // x2/W$a.<init>(Window, x2/v): 4 registers, ins 3 -> v1 = this, v2 = window, v3 = impl.
-        // The constructor body stays original: it must keep delegating to
-        // <init>(WindowInsetsController, x2/v), which is the call that runs Object.<init>.
-        // What changes is the argument: Window.getInsetsController() was redirected above to the
-        // extension helper, which returns null on API < 30 (so f82859a stays null, like the
-        // Impl20/23/26 constructors R8 removed). The helper returns Object to remain loadable on
-        // API 29, so the move-result-object needs a check-cast back to the platform type required
-        // by the constructor prototype; check-cast of null succeeds without resolving the class.
+        // x2/W$a.<init>(Window, x2/v): 4 registers, ins 3 -> v0 free, v1 = this, v2 = window,
+        // v3 = impl. Morphe 2.1.0 has no addFreeRegisters, and there is no second free register
+        // for a comparison constant, so the SDK test goes through the pure helper
+        // isAtLeast30(int) and touches only v0:
+        //   original instruction 0 = Window.getInsetsController() (API 30)
+        //   original instruction 1 = its move-result-object
+        //   original instruction 2 = invoke-direct <init>(WindowInsetsController, x2/v), the
+        //                            delegation that runs Object.<init> and fills f82859a/b
+        // The constructor body is untouched: on API < 30 the delegating call receives null (which
+        // merges with the WindowInsetsController produced by the guarded branch, so the verifier
+        // never needs to resolve that type at the call site).
         InsetsImplWindowInitFingerprint.method.apply {
             val instructions = implementation?.instructions ?: error("${W_IMPL}init has no code")
-            val resultIndex = instructions.indexOfFirst { it.opcode == Opcode.MOVE_RESULT_OBJECT }
-            check(resultIndex >= 0) { "${W_IMPL}init(Window, x2/v) has no move-result-object" }
-            val register = (instructions[resultIndex] as OneRegisterInstruction).registerA
-            addInstructions(resultIndex + 1, "check-cast v$register, Landroid/view/WindowInsetsController;")
+            check(instructions.size == 5) { "${W_IMPL}init(Window, x2/v): expected 5 instructions" }
+            check(instructions[0].opcode == Opcode.INVOKE_VIRTUAL) {
+                "${W_IMPL}init: instruction 0 is not the controller call"
+            }
+            check(instructions[2].opcode == Opcode.INVOKE_DIRECT) {
+                "${W_IMPL}init: instruction 2 is not the delegating <init> call"
+            }
+            addInstructionsWithLabels(
+                0,
+                """
+                    sget v0, $SDK_INT
+                    invoke-static {v0}, $INSETS_COMPAT->isAtLeast30(I)Z
+                    move-result v0
+                    if-eqz v0, :legacy
+                    goto :supported
+                    :legacy
+                    const/4 v0, 0x0
+                    goto :call
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+                ExternalLabel("call", getInstruction(2)),
+            )
         }
 
         // x2/W.a(Z): 5 registers, ins 2 -> v3 = this, v4 = value; v0-v2 are free.

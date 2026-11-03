@@ -1,7 +1,5 @@
 package app.morphe.extension.applemusic;
 
-import android.os.Build;
-import android.view.Window;
 import android.view.WindowInsetsController;
 
 /**
@@ -20,14 +18,13 @@ public final class WindowInsetsControllerCompat {
     }
 
     /**
-     * API 29 stand-in for {@link Window#getInsetsController()} (API 30), used by the
-     * x2/W$a(Window, x2/v) constructor. Returns null on API &lt; 30, which is exactly what the
-     * removed Impl20/23/26 constructors left in the controller field. The return type is Object
-     * so this class keeps loading on API 29; the call site casts it back to
-     * WindowInsetsController right after the call.
+     * SDK_INT check for call sites that have no free register left to hold both the SDK value and
+     * the literal 30: the patched bytecode does {@code sget} + {@code invoke-static} +
+     * {@code move-result} + {@code if-eqz} on a single register. No platform type is involved, so
+     * this method is safe to load and run on API 29.
      */
-    public static Object getInsetsController(Window window) {
-        return Build.VERSION.SDK_INT >= 30 ? window.getInsetsController() : null;
+    public static boolean isAtLeast30(int sdk) {
+        return sdk >= 30;
     }
 
     public static void setSystemBarsAppearance(Object controller, int appearance, int mask) {
