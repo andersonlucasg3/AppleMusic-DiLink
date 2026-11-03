@@ -4,9 +4,34 @@ import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
 import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
+import app.morphe.patcher.patch.BytecodePatchContext
 import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.applemusic.shared.Constants.APPLE_MUSIC_DILINK
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c
+import com.android.tools.smali.dexlib2.iface.ClassDef
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction35c
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference
+
+private const val EXTENSION_PACKAGE = "Lapp/morphe/extension/"
+private const val OBJECTS_COMPAT = "${EXTENSION_PACKAGE}applemusic/ObjectsCompat;"
+private const val LIST_COMPAT = "${EXTENSION_PACKAGE}applemusic/ListCompat;"
+private const val INSETS_COMPAT = "${EXTENSION_PACKAGE}applemusic/WindowInsetsControllerCompat;"
+private const val WIFI_COMPAT = "${EXTENSION_PACKAGE}applemusic/WifiInfoCompat;"
+
+/**
+ * x2/W and x2/W$a are androidx.core.view.WindowInsetsControllerCompat and its Impl30 after R8.
+ * Descriptors confirmed with dexdump on classes.dex of 7.0.0 (see analysis/api-levels.md §1.4).
+ */
+private const val W = "Lx2/W;"
+private const val W_IMPL = "Lx2/W\$a;"
+private const val SDK_INT = "Landroid/os/Build\$VERSION;->SDK_INT:I"
 
 /**
  * m1.x() is the only method in the dex that contains "android.hardware.sensor.hinge_angle"
@@ -53,14 +78,171 @@ internal object NewPlaylistKeyboardFingerprint : Fingerprint(
     returnType = "V",
 )
 
+/**
+ * x2/W$a.<init>(Window, x2/v) is the Impl30 constructor: it calls Window.getInsetsController()
+ * (API 30) with no guard (dexdump: 6ab29c, invoke-virtual @0000). This is the constructor used
+ * by every API < 35 caller (dexdump: x2/W.<init> @0x0018 and every new-instance x2/W$a).
+ */
+internal object InsetsImplWindowInitFingerprint : Fingerprint(
+    definingClass = W_IMPL,
+    name = "<init>",
+    parameters = listOf("Landroid/view/Window;", "Lx2/v;"),
+    returnType = "V",
+)
+
+/** x2/W.a(Z) — setAppearanceLightStatusBars, dereferences the controller (dexdump: 6ab4c0). */
+internal object InsetsLightStatusBarsFingerprint : Fingerprint(
+    definingClass = W,
+    name = "a",
+    parameters = listOf("Z"),
+    returnType = "V",
+)
+
+/** x2/W.b(Z) — setAppearanceLightNavigationBars, dereferences the controller (dexdump: 6ab51c). */
+internal object InsetsLightNavigationBarsFingerprint : Fingerprint(
+    definingClass = W,
+    name = "b",
+    parameters = listOf("Z"),
+    returnType = "V",
+)
+
+/** x2/W$a.a()Z — isAppearanceLightStatusBars (dexdump: 6ab234). */
+internal object InsetsIsLightStatusBarsFingerprint : Fingerprint(
+    definingClass = W_IMPL,
+    name = "a",
+    parameters = emptyList(),
+    returnType = "Z",
+)
+
+/** x2/W$a.b()Z — isAppearanceLightNavigationBars (dexdump: 6ab268). */
+internal object InsetsIsLightNavigationBarsFingerprint : Fingerprint(
+    definingClass = W_IMPL,
+    name = "b",
+    parameters = emptyList(),
+    returnType = "Z",
+)
+
+/** x2/W$a.c()V — setSystemBarsBehavior (dexdump: 6ab2fc). */
+internal object InsetsSetBehaviorFingerprint : Fingerprint(
+    definingClass = W_IMPL,
+    name = "c",
+    parameters = emptyList(),
+    returnType = "V",
+)
+
+/**
+ * FullScreenVideoActivity.onCreate ends with the API 30 insets block
+ * (FullScreenVideoActivity.java:691-695):
+ *
+ *   Window window = getWindow();
+ *   C6812v impl = new C6812v(getWindow().getDecorView());
+ *   W.a v = SDK_INT >= 35 ? new W.c(window, impl) : new W.a(window, impl);
+ *   v.c();
+ *   v.f82859a.hide(519);
+ *
+ * On API 29 v.f82859a is null, so the block has to be skipped as a whole.
+ */
+internal object FullScreenVideoOnCreateFingerprint : Fingerprint(
+    definingClass = "Lcom/apple/android/music/player2/FullScreenVideoActivity;",
+    name = "onCreate",
+    parameters = listOf("Landroid/os/Bundle;"),
+    returnType = "V",
+)
+
+/** One "redirect these platform calls to an extension helper" rule. */
+private class RedirectRule(
+    val key: String,
+    val targetClass: String,
+    val targetNames: Set<String>,
+    val helperClass: String,
+    val helperParameters: (MethodReference) -> List<String>,
+    val expectedCalls: Int,
+    /**
+     * Return type of the helper, when it has to differ from the target method. Used by
+     * Window.getInsetsController: the helper returns Object so the extension stays loadable
+     * on API 29, and the call site gets an explicit check-cast back to the platform type.
+     */
+    val helperReturnType: (MethodReference) -> String = { it.returnType },
+)
+
+private fun Instruction.methodCalled(definingClass: String, names: Set<String>): MethodReference? {
+    val reference = (this as? ReferenceInstruction)?.reference as? MethodReference ?: return null
+    return reference.takeIf { it.definingClass == definingClass && it.name in names }
+}
+
+/**
+ * Rewrites every invoke-* of the given platform methods to a static helper that receives the
+ * original receiver as its first argument. Register list and return type are preserved, so the
+ * call site keeps working; only the declaring class and the prototype change.
+ */
+private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<String, Int> {
+    val counts = rules.associate { it.key to 0 }.toMutableMap()
+
+    val candidates = mutableListOf<ClassDef>()
+    classDefForEach { classDef ->
+        // Never rewrite the helpers themselves (they call the platform methods on purpose).
+        if (!classDef.type.startsWith(EXTENSION_PACKAGE) &&
+            classDef.methods.any { method ->
+                method.implementation?.instructions?.any { instruction ->
+                    rules.any { rule -> instruction.methodCalled(rule.targetClass, rule.targetNames) != null }
+                } == true
+            }
+        ) {
+            candidates += classDef
+        }
+    }
+
+    for (classDef in candidates) {
+        for (method in mutableClassDefBy(classDef).methods) {
+            val implementation = method.implementation ?: continue
+            val rewrites = implementation.instructions.mapIndexedNotNull { index, instruction ->
+                rules.firstOrNull { rule ->
+                    instruction.methodCalled(rule.targetClass, rule.targetNames) != null
+                }?.let { index to it }
+            }
+            for ((index, rule) in rewrites) {
+                val instruction = implementation.instructions[index] as Instruction35c
+                val reference = (instruction as ReferenceInstruction).reference as MethodReference
+                implementation.replaceInstruction(
+                    index,
+                    BuilderInstruction35c(
+                        Opcode.INVOKE_STATIC,
+                        instruction.registerCount,
+                        instruction.registerC,
+                        instruction.registerD,
+                        instruction.registerE,
+                        instruction.registerF,
+                        instruction.registerG,
+                        ImmutableMethodReference(
+                            rule.helperClass,
+                            reference.name,
+                            rule.helperParameters(reference),
+                            rule.helperReturnType(reference),
+                        ),
+                    ),
+                )
+                counts[rule.key] = counts.getValue(rule.key) + 1
+            }
+        }
+    }
+
+    counts.forEach { (key, count) ->
+        val expected = rules.first { it.key == key }.expectedCalls
+        check(count == expected) { "Expected $expected $key call sites, redirected $count" }
+    }
+    return counts
+}
+
 @Suppress("unused")
 val appleMusicDiLinkPatch = bytecodePatch(
     name = "Apple Music DiLink support",
-    description = "Unlocks landscape rotation, lowers the API floor to Android 9/10 and bypasses Play Integrity.",
+    description = "Unlocks landscape rotation, lowers the API floor to Android 10 (API 29), " +
+        "backports the API 30 java/androidx calls and bypasses Play Integrity.",
     default = true,
 ) {
     compatibleWith(APPLE_MUSIC_DILINK)
     dependsOn(dilinkManifestPatch)
+    extendWith("extensions/extension.mpe")
 
     execute {
         // x() has 2 registers and no parameters, so v0 is free at method entry.
@@ -79,7 +261,7 @@ val appleMusicDiLinkPatch = bytecodePatch(
             addInstructionsWithLabels(
                 0,
                 """
-                    sget v0, Landroid/os/Build${'$'}VERSION;->SDK_INT:I
+                    sget v0, $SDK_INT
                     const/16 v1, 0x1e
                     if-ge v0, v1, :supported
                     return-void
@@ -106,12 +288,237 @@ val appleMusicDiLinkPatch = bytecodePatch(
             addInstructionsWithLabels(
                 0,
                 """
-                    sget v0, Landroid/os/Build${'$'}VERSION;->SDK_INT:I
+                    sget v0, $SDK_INT
                     const/16 v1, 0x1e
                     if-ge v0, v1, :supported
                     return-void
                 """,
                 ExternalLabel("supported", getInstruction(0)),
+            )
+        }
+
+        // ---------------------------------------------------------------------------------
+        // API 29 backport: platform calls that only exist on API 30.
+        // ---------------------------------------------------------------------------------
+
+        // java.util.Objects.requireNonNullElse/ElseGet (7 call sites: the 5 playback getters
+        // of MediaPlaybackPreferences, StorePlaybackQueueItemProvider.isExplicitAllowed and
+        // medialibrary.library.a.<init>), java.util.List.of (7 call sites, one of them
+        // BaseAssetRequest.fetchMiniSinfs), WifiInfo.getWifiStandard (metrics.f.b) and the
+        // WindowInsetsController appearance/behavior calls, which all receive a null
+        // controller on API 29 because of the x2/W$a constructor patch below.
+        redirectCalls(
+            listOf(
+                RedirectRule(
+                    key = "Objects.requireNonNullElse*",
+                    targetClass = "Ljava/util/Objects;",
+                    targetNames = setOf("requireNonNullElse", "requireNonNullElseGet"),
+                    helperClass = OBJECTS_COMPAT,
+                    helperParameters = { reference ->
+                        listOf(
+                            "Ljava/lang/Object;",
+                            "Ljava/util/function/Supplier;".takeIf {
+                                reference.name == "requireNonNullElseGet"
+                            } ?: "Ljava/lang/Object;",
+                        )
+                    },
+                    expectedCalls = 7,
+                ),
+                RedirectRule(
+                    key = "List.of",
+                    targetClass = "Ljava/util/List;",
+                    targetNames = setOf("of"),
+                    helperClass = LIST_COMPAT,
+                    helperParameters = { reference ->
+                        when (reference.parameterTypes.size) {
+                            1 -> listOf("Ljava/lang/Object;")
+                            2 -> listOf("Ljava/lang/Object;", "Ljava/lang/Object;")
+                            else -> error("Unsupported List.of arity: ${reference.parameterTypes.size}")
+                        }
+                    },
+                    expectedCalls = 7,
+                ),
+                RedirectRule(
+                    key = "WifiInfo.getWifiStandard",
+                    targetClass = "Landroid/net/wifi/WifiInfo;",
+                    targetNames = setOf("getWifiStandard"),
+                    helperClass = WIFI_COMPAT,
+                    helperParameters = { listOf("Landroid/net/wifi/WifiInfo;") },
+                    expectedCalls = 1,
+                ),
+                RedirectRule(
+                    key = "WindowInsetsController.setSystemBarsAppearance",
+                    targetClass = "Landroid/view/WindowInsetsController;",
+                    targetNames = setOf("setSystemBarsAppearance"),
+                    helperClass = INSETS_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "I", "I") },
+                    expectedCalls = 26,
+                ),
+                RedirectRule(
+                    key = "WindowInsetsController.getSystemBarsAppearance",
+                    targetClass = "Landroid/view/WindowInsetsController;",
+                    targetNames = setOf("getSystemBarsAppearance"),
+                    helperClass = INSETS_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;") },
+                    expectedCalls = 4,
+                ),
+                RedirectRule(
+                    key = "WindowInsetsController.setSystemBarsBehavior",
+                    targetClass = "Landroid/view/WindowInsetsController;",
+                    targetNames = setOf("setSystemBarsBehavior"),
+                    helperClass = INSETS_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "I") },
+                    expectedCalls = 2,
+                ),
+                // The only Window.getInsetsController() call in the dex, inside
+                // x2/W$a.<init>(Window, x2/v). The helper returns Object (see below).
+                RedirectRule(
+                    key = "Window.getInsetsController",
+                    targetClass = "Landroid/view/Window;",
+                    targetNames = setOf("getInsetsController"),
+                    helperClass = INSETS_COMPAT,
+                    helperParameters = { listOf("Landroid/view/Window;") },
+                    helperReturnType = { "Ljava/lang/Object;" },
+                    expectedCalls = 1,
+                ),
+            ),
+        )
+
+        // x2/W$a.<init>(Window, x2/v): 4 registers, ins 3 -> v1 = this, v2 = window, v3 = impl.
+        // The constructor body stays original: it must keep delegating to
+        // <init>(WindowInsetsController, x2/v), which is the call that runs Object.<init>.
+        // What changes is the argument: Window.getInsetsController() was redirected above to the
+        // extension helper, which returns null on API < 30 (so f82859a stays null, like the
+        // Impl20/23/26 constructors R8 removed). The helper returns Object to remain loadable on
+        // API 29, so the move-result-object needs a check-cast back to the platform type required
+        // by the constructor prototype; check-cast of null succeeds without resolving the class.
+        InsetsImplWindowInitFingerprint.method.apply {
+            val instructions = implementation?.instructions ?: error("${W_IMPL}init has no code")
+            val resultIndex = instructions.indexOfFirst { it.opcode == Opcode.MOVE_RESULT_OBJECT }
+            check(resultIndex >= 0) { "${W_IMPL}init(Window, x2/v) has no move-result-object" }
+            val register = (instructions[resultIndex] as OneRegisterInstruction).registerA
+            addInstructions(resultIndex + 1, "check-cast v$register, Landroid/view/WindowInsetsController;")
+        }
+
+        // x2/W.a(Z): 5 registers, ins 2 -> v3 = this, v4 = value; v0-v2 are free.
+        // With a null controller the original setSystemBarsAppearance would NPE, so only the
+        // Impl20 systemUiVisibility fallback is executed (16 = APPEARANCE_LIGHT_STATUS_BARS).
+        InsetsLightStatusBarsFingerprint.method.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    iget-object v0, v3, ${W}->a:${W_IMPL}
+                    iget-object v1, v0, ${W_IMPL}->a:Landroid/view/WindowInsetsController;
+                    if-eqz v1, :supported
+                    iget-object v1, v0, ${W_IMPL}->c:Landroid/view/Window;
+                    if-eqz v1, :done
+                    const/16 v2, 0x10
+                    if-eqz v4, :clear
+                    invoke-virtual {v0, v2}, ${W_IMPL}->d(I)V
+                    goto :done
+                    :clear
+                    invoke-virtual {v0, v2}, ${W_IMPL}->e(I)V
+                    :done
+                    return-void
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+            )
+        }
+
+        // x2/W.b(Z): 6 registers, ins 2 -> v4 = this, v5 = value; v0-v3 are free.
+        // The fallback flag is 0x2000 (C.ROLE_FLAG_EASY_TO_READ), the value the original
+        // body passes to d()/e(); setSystemBarsAppearance uses 8 (LIGHT_NAVIGATION_BARS).
+        InsetsLightNavigationBarsFingerprint.method.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    iget-object v0, v4, ${W}->a:${W_IMPL}
+                    iget-object v1, v0, ${W_IMPL}->a:Landroid/view/WindowInsetsController;
+                    if-eqz v1, :supported
+                    iget-object v1, v0, ${W_IMPL}->c:Landroid/view/Window;
+                    if-eqz v1, :done
+                    const/16 v2, 0x2000
+                    if-eqz v5, :clear
+                    invoke-virtual {v0, v2}, ${W_IMPL}->d(I)V
+                    goto :done
+                    :clear
+                    invoke-virtual {v0, v2}, ${W_IMPL}->e(I)V
+                    :done
+                    return-void
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+            )
+        }
+
+        // x2/W$a.a()Z / b(): 2 registers, ins 1 -> v1 = this, v0 is free.
+        // Reading getSystemBarsAppearance() with a null controller would NPE; report "not set".
+        for (fingerprint in listOf(InsetsIsLightStatusBarsFingerprint, InsetsIsLightNavigationBarsFingerprint)) {
+            fingerprint.method.apply {
+                addInstructionsWithLabels(
+                    0,
+                    """
+                        iget-object v0, v1, ${W_IMPL}->a:Landroid/view/WindowInsetsController;
+                        if-eqz v0, :supported
+                        const/4 v0, 0x0
+                        return v0
+                    """,
+                    ExternalLabel("supported", getInstruction(0)),
+                )
+            }
+        }
+
+        // x2/W$a.c()V: 4 registers, ins 1 -> v3 = this, v0/v1/v2 are free.
+        // Instruction 0 is the window load, instruction 3 the start of the tag path
+        // (dexdump: 6ab306 invoke-virtual Window.getDecorView). With a null controller the
+        // tag/systemUiVisibility path is still valid when the window is known, and it is
+        // skipped (return) when it is not.
+        InsetsSetBehaviorFingerprint.method.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    iget-object v0, v3, ${W_IMPL}->a:Landroid/view/WindowInsetsController;
+                    if-eqz v0, :supported
+                    iget-object v0, v3, ${W_IMPL}->c:Landroid/view/Window;
+                    if-eqz v0, :tag
+                    return-void
+                    :tag
+                    const/4 v1, 0x2
+                    goto :tagPath
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+                ExternalLabel("tagPath", getInstruction(3)),
+            )
+        }
+
+        // FullScreenVideoActivity.onCreate: skip only the trailing insets block on API < 30.
+        // The anchor is the SDK_INT read that selects W$c/W$a; the skip target is the
+        // instruction right after WindowInsetsController.hide(519), i.e. the return-void.
+        // 10 registers, ins 2 -> v9 = this, v10? no: v8 = decorView (dead after the C6812v
+        // constructor) and v1 is dead since the last call at 0x10f; both are overwritten by
+        // the original code right after the injection point.
+        FullScreenVideoOnCreateFingerprint.method.apply {
+            val instructions = implementation?.instructions ?: error("onCreate has no implementation")
+            val hideIndex = instructions.indexOfFirst { instruction ->
+                instruction.methodCalled(
+                    "Landroid/view/WindowInsetsController;",
+                    setOf("hide"),
+                ) != null
+            }
+            check(hideIndex >= 0) { "FullScreenVideoActivity.onCreate has no WindowInsetsController.hide call" }
+            val sdkIndex = (hideIndex downTo 0).first { index ->
+                val reference = (instructions[index] as? ReferenceInstruction)?.reference
+                reference is FieldReference &&
+                    reference.definingClass == "Landroid/os/Build\$VERSION;" &&
+                    reference.name == "SDK_INT"
+            }
+            addInstructionsWithLabels(
+                sdkIndex,
+                """
+                    sget v8, $SDK_INT
+                    const/16 v1, 0x1e
+                    if-ge v8, v1, :insets
+                """,
+                ExternalLabel("insets", getInstruction(hideIndex + 1)),
             )
         }
     }

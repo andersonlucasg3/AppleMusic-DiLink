@@ -4,7 +4,7 @@
   "patches": [
     {
       "name": "Apple Music DiLink manifest",
-      "description": "Lowers minSdkVersion from 30 to 28 and removes the portrait lock of MLIChromeTabActivity.",
+      "description": "Lowers minSdkVersion from 30 to 29 (Android 10) and removes the portrait lock of MLIChromeTabActivity.",
       "default": false,
       "dependencies": [],
       "compatiblePackages": [
@@ -30,7 +30,7 @@
     },
     {
       "name": "Apple Music DiLink support",
-      "description": "Unlocks landscape rotation, lowers the API floor to Android 9/10 and bypasses Play Integrity.",
+      "description": "Unlocks landscape rotation, lowers the API floor to Android 10 (API 29), backports the API 30 java/androidx calls and bypasses Play Integrity.",
       "default": true,
       "dependencies": [
         "ResourcePatch"

@@ -183,7 +183,7 @@ Para essas, o jadx **inlina** a chamada no chamador real (ex.: `ExtensionsKt.jav
 | `Resources.getFloat` (API 29) em player/lyrics/profiles | bloqueante em API 28 | `S0.java:648`, `x.java`, `BaseProfileEpoxyController.java:1638` |
 | `FullScreenVideoActivity` / `NewPlaylistFragment` (API 30) | crash em telas específicas (nova playlist já corrigida) | §1.3 |
 
-**Conclusão:** `minSdk 28` **não** é viável; `minSdk 29` **também não** com o patch atual (dois bloqueios independentes: `x2.W` e `Objects.requireNonNullElse`). O caminho para 29 exigiria, no mínimo, reescrever o compat `p468x2.W` (construtor + `a()/b()/c()` + `v$b`) e trocar as 4 chamadas de `Objects.requireNonNullElse*` por null-checks — nenhum dos dois é "guarda de uma linha".
+**Conclusão (estado anterior ao backport):** `minSdk 28` **não** é viável; `minSdk 29` **também não** com o patch de então (dois bloqueios independentes: `x2.W` e `Objects.requireNonNullElse`). O caminho para 29 exigiria, no mínimo, reescrever o compat `p468x2.W` (construtor + `a()/b()/c()` + `v$b`) e trocar as 4 chamadas de `Objects.requireNonNullElse*` por null-checks — nenhum dos dois é "guarda de uma linha". **O backport descrito em §5 foi aplicado em 2026-11-03 e cobre esses dois bloqueios + os demais alvos de API 30; a decisão do produto é Android 10 (API 29).**
 
 ---
 
@@ -321,6 +321,30 @@ A guarda está presente e o alvo do label é a primeira instrução original (ch
 4. **Colisão de case no jadx**: qualquer análise futura que dependa de `sources/x2`, `sources/e`, `sources/f4` deve usar os nomes `p468x2`, `p088e`, `p088e`/`F4` conforme o jadx mapeou; os arquivos "curtos" podem estar sobrescritos.
 5. **3 métodos não decodificados** (0,0015%) não entraram na varredura; nenhum tem chamada de plataforma conhecida.
 6. **API 28 x 29**: os achados de `since=29` (fontes, `Resources.getFloat`, `startForeground`) só quebram em 28. Como o alvo declarado é Android 10 (29) e 9 (28), os dois níveis precisam de decisões separadas.
+
+---
+
+## 5. Backport aplicado para API 29 (2026-11-03)
+
+Decisão do produto: manter o 7.0.0 e rodar no **Android 10 (API 29)** do DiLink. `minSdk` do patch agora é **29** (`DilinkManifestPatch`); API 28 continua fora de escopo porque tem bloqueio próprio (`utils.m1.<clinit>` com `FontStyle`, §1.3).
+
+O que o patch (`AppleMusicDiLinkPatch`) faz hoje, além do que já existia (tablet/landscape, emoji, Play Integrity, `openKeyboardForTitle`):
+
+| Alvo | Como | Evidência no APK patcheado |
+|---|---|---|
+| `Objects.requireNonNullElse` / `...ElseGet` (API 30, 7 call sites) | redirecionados para `ObjectsCompat` (extensão) com os mesmos registradores | `MediaPlaybackPreferences` (5), `StorePlaybackQueueItemProvider` (1), `medialibrary/library/a` (1); **0** refs a `Ljava/util/Objects;.requireNonNullElse*` no APK |
+| `List.of` (API 30, 7 call sites, inclui `BaseAssetRequest.fetchMiniSinfs`) | redirecionados para `ListCompat.of` | `Lapp/morphe/extension/applemusic/ListCompat;.of:(Ljava/lang/Object;)Ljava/util/List;` |
+| `x2.W$a.<init>(Window, v)` (API 30) | `Window.getInsetsController()` redirecionado para `WindowInsetsControllerCompat.getInsetsController(Window)` — retorna `Object` (`null` em API < 30) para a extensão continuar carregável em API 29; um `check-cast` após o `move-result-object` satisfaz o protótipo do construtor, que fica **original** (sem `iput` em `this` antes do `Object.<init>`) | `invoke-static {v2}, …;->getInsetsController:(Landroid/view/Window;)Ljava/lang/Object;` + `move-result-object v0` + `check-cast v0, Landroid/view/WindowInsetsController;` + `invoke-direct … W$a-><init>(WindowInsetsController, x2/v)` |
+| `x2.W.a(Z)` / `x2.W.b(Z)` | controller null → só o fallback `d()/e()` e `return` | null-check + `invoke-virtual Lx2/W$a;->d(I)V` |
+| `x2.W$a.a()/b()` | controller null → `false` | `if-eqz` + `return v0` |
+| `x2.W$a.c()` | controller null → caminho do tag (window conhecida) ou `return` | `if-eqz` + `goto` para o tag path |
+| `WindowInsetsController.setSystemBarsAppearance/getSystemBarsAppearance/setSystemBarsBehavior` (API 30, 32 call sites) | redirecionados para `WindowInsetsControllerCompat` (null-safe) | necessário porque `e.m.b` → `e.m.a` → `q.b` (`e.p.b`) roda no **`MainActivity.onCreate`** e lê `W$a.a` direto |
+| `FullScreenVideoActivity.onCreate` (API 30) | guarda `SDK_INT < 30` que pula só o bloco de insets (alvo: instrução após `WindowInsetsController.hide`) | `if-ge v8, v1, 0144` antes do bloco |
+| `metrics.f.b(EventType)` → `WifiInfo.getWifiStandard` (API 30) | redirecionado para `WifiInfoCompat` (retorna 0 em API < 30) | `Lapp/morphe/extension/applemusic/WifiInfoCompat;.getWifiStandard` |
+
+Resultado da varredura (§1.1) sobre o APK patcheado: **1.279 → 1.237** referências `since > 28`. As que continuam relevantes para as telas do app estão **guardadas** (`hide` do `FullScreenVideoActivity`, `show` do `NewPlaylistFragment`); as demais estão em classes de biblioteca sem caminho no app (`x2/v$b`, `Af/h`, `Af/i`, `androidx/preference`, `w0/q2`). Restam sem guarda `View.getWindowInsetsController()` em `x2/E$j.c` (só chamado por `Af/h`/`Af/i`, SearchView do material) e `x2/v$b.a()`.
+
+**Não verificado (runtime real):** nenhum device/emulador nesta sessão; o comportamento de `e.p.b` com controller null, o `setSystemUiVisibility` de fallback e o `WindowInsetsControllerCompat` da extensão em API 29 são inferidos do bytecode.
 
 ---
 
