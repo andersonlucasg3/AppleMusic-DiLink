@@ -12,9 +12,12 @@
           "packageName": "com.apple.android.music",
           "name": "Apple Music (DiLink)",
           "description": null,
-          "apkFileType": null,
+          "apkFileType": "XAPK",
           "appIconColor": "#FA243C",
-          "signatures": null,
+          "signatures": [
+            "88ba590ec2e1ea33c4458daf59489faee2cef297a9b4071e18cf82ef531100aa",
+            "771d8674d3d9837c9edf11b11873443998f19105abcecab425ed9b8e6fefff9b"
+          ],
           "targets": [
             {
               "version": "7.0.0",
@@ -40,9 +43,12 @@
           "packageName": "com.apple.android.music",
           "name": "Apple Music (DiLink)",
           "description": null,
-          "apkFileType": null,
+          "apkFileType": "XAPK",
           "appIconColor": "#FA243C",
-          "signatures": null,
+          "signatures": [
+            "88ba590ec2e1ea33c4458daf59489faee2cef297a9b4071e18cf82ef531100aa",
+            "771d8674d3d9837c9edf11b11873443998f19105abcecab425ed9b8e6fefff9b"
+          ],
           "targets": [
             {
               "version": "7.0.0",
