@@ -1,0 +1,323 @@
+# Handoff — Apple Music DiLink
+
+Atualizado em **2026-11-04**. Documento de passagem de contexto; não é uma release.
+
+## Objetivo
+
+Fazer o Apple Music 7.0.0 (`com.apple.android.music`, versionCode 1614) rodar no head unit
+**BYD DiLink 3.0 (Android 10 / API 29)** com o bundle de patches Morphe, incluindo:
+
+- landscape/tablet;
+- startup sem GMS;
+- backport das APIs 30 usadas pelo app;
+- login da Apple funcionando;
+- tela **Ajustes** funcionando;
+- nova versão + tag + `.mpp` publicados seguindo o fluxo do repositório.
+
+## Restrições confirmadas pelo usuário
+
+- **Não instalar certificado no DiLink.** Essa abordagem foi tentada e não é opção.
+- O app deve funcionar apenas com o **patch Morphe** aplicado ao APK e a instalação normal.
+- O formato de distribuição/teste correto é o `.mpp` do Morphe, mas ele não corrige sozinho
+  incompatibilidades de runtime; a release só deve sair depois de login e Ajustes passarem no carro.
+
+## Estado do repositório
+
+- Repositório: `/root/.buddy/work/AppleMusic-DiLink`
+- Branch: `main`
+- HEAD: `0f70690 fix: avoid resolving WindowInsetsController on API 29 startup`
+- Working tree: limpo quando este handoff foi escrito.
+- Tags existentes: `v1.0.0`, `v1.0.1`, `v1.0.2`, `v1.0.3`.
+- Versão em `gradle.properties`: `1.0.3`.
+- `patches-bundle.json` ainda aponta para `1.0.3`.
+- **Nenhum commit, push, tag ou release foi feito nesta sessão.**
+
+## Estado do carro
+
+- ADB: `10.202.204.179:5555`
+- Produto: `DiLink3.0`
+- Modelo: `BYD_AUTO`
+- Android: 10 / API 29
+- ABI: `arm64-v8a`
+- Tela: `1920x1080`, densidade `240`
+- WebView do sistema: `com.android.webview` **74.0.3729.186** (2019), `targetSdk 29`,
+  `armeabi-v7a`.
+
+A conexão ADB tem caído. Para reconectar:
+
+```sh
+adb disconnect 10.202.204.179:5555
+adb connect 10.202.204.179:5555
+adb devices -l
+```
+
+O APK atualmente instalado é o build de teste:
+
+```
+.pipeline/fix/applemusic-dilink-fixed22.apk
+```
+
+O `fixed22` é a base `fixed21` + configuração interna de confiança TLS, mas ainda não contém
+o patch de acessibilidade descoberto depois.
+
+## O que já funciona
+
+- O app abre no DiLink e mostra a home/onboarding em landscape.
+- A navegação principal (Início, Novidades, Rádio, Biblioteca, Buscar) renderiza.
+- Ajustes abre e a tela **Letra** funciona.
+- O fluxo de login chega ao WebView de autenticação da Apple (spinner), mas ainda não completa.
+- Builds de teste são instalados com `adb install -r`.
+
+## Login — diagnóstico atual
+
+O problema tem duas camadas.
+
+### 1. TLS/CA — já resolvido no APK de teste
+
+- `gsd.apple.com` usa `Apple Root CA - G3`.
+- O store de CAs do DiLink não contém essa raiz; no Brave o erro era
+  `NET::ERR_CERT_AUTHORITY_INVALID`.
+- O APK já contém `res/raw/apple_ca.pem` com a raiz/intermediário da Apple.
+- Foi criado um `network_security_config.xml` interno apontando para `@raw/apple_ca`.
+- Com essa configuração, `https://gsd.apple.com/auth/container/signin` retornou **HTTP 200**
+  e os scripts de autenticação da Apple (`appleid.cdn-apple.com`) baixaram.
+
+Isso prova que a correção de TLS **dentro do APK** funciona e deve ser portada para o patch
+de verdade, sem instalar nada no carro. Preferir um `domain-config` restrito a
+`gsd.apple.com` em vez do `base-config` amplo usado no teste.
+
+### 2. WebContainer — ainda bloqueante
+
+Depois do TLS, o app chega ao servidor, mas o WebView ainda falha com:
+
+```text
+Bootstrap failed: A timeout occurred in state: LoadingHTML
+Error page displayed. title: , message: [9]
+```
+
+O processo continua vivo: é o “soft crash” descrito pelo usuário, não um `FATAL EXCEPTION`.
+
+`Loading Mescal session` também falha com `Code 8`, mas o bootstrap continua; ainda não está
+provado se isso é causa ou consequência.
+
+Hipótese principal: a página/fluxo de autenticação usa recursos JavaScript incompatíveis com
+o WebView 74. Próximo passo é habilitar WebView DevTools no build de teste, abrir o login e
+inspecionar a página via CDP:
+
+```sh
+adb shell cat /proc/net/unix | grep webview_devtools_remote
+adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>
+curl http://127.0.0.1:9222/json/list
+```
+
+Para isso, injetar `WebView.setWebContentsDebuggingEnabled(true)` no startup do app
+(`MainActivity.onCreate` ou `AppleMusicApplication.onCreate`; a chamada existente em
+`svgroupactivities/WebViewHolderImpl` não é do WebView de login).
+
+## Ajustes — diagnóstico atual
+
+Reprodução no carro:
+
+1. Home → três pontos no topo direito → **Ajustes**.
+2. A tela principal mostra: Iniciar Sessão, OPÇÕES DE TELA, Movimento, Letra, DIAGNÓSTICO.
+3. **Letra** abre e renderiza os radios normalmente.
+4. **Movimento** abre com título e uma linha divisória, mas o conteúdo fica **totalmente
+   em branco**.
+5. A seção **DIAGNÓSTICO** também aparece sem linhas na tela principal.
+
+O `motion_settings_preference.xml` contém duas `CheckBoxPreference` com layout customizado
+(`@layout/preference`, `@layout/switch_preference_layout`), então a suspeita está na inflação
+dessas preferências no Android 10, não no backend de conta.
+
+### Crash de acessibilidade descoberto
+
+Ao usar `uiautomator dump`, o app cai com:
+
+```text
+java.lang.NoSuchMethodError: No virtual method
+getStateDescription()Ljava/lang/CharSequence;
+in class Landroid/view/View;
+
+at x2.E$j.b(MusicApp:1)
+at x2.a$a.onInitializeAccessibilityNodeInfo(MusicApp:46)
+```
+
+O dropbox também registrou um caminho anterior:
+
+```text
+java.lang.NoSuchMethodError: No virtual method
+setStateDescription(Ljava/lang/CharSequence;)V
+in class Landroid/view/accessibility/AccessibilityNodeInfo;
+at androidx.compose.ui.platform.b$c.b(MusicApp:1301)
+```
+
+O `fixed22` já contém o bypass do Compose (`androidx.compose.ui.platform.b$c.b`), mas **não
+contém** o equivalente da ponte AndroidX de acessibilidade. Isso não explica sozinho o
+conteúdo em branco de Movimento, mas impede inspecionar a árvore de views e pode ser
+disparado por serviços de acessibilidade do carro.
+
+### Patch mínimo planejado para o teste binário
+
+No DEX principal (`classes.dex`):
+
+| Classe/método | Correção |
+|---|---|
+| `Lx2/E$j;->b(Landroid/view/View;)Ljava/lang/CharSequence;` | retornar `null` em API < 30 |
+| `Lx2/E$j;->c(Landroid/view/View;)Lx2/W;` | retornar `null` em API < 30 |
+| `Lx2/E$j;->d(Landroid/view/View;Ljava/lang/CharSequence;)V` | no-op em API < 30 |
+| `Lx2/a$a;->onInitializeAccessibilityNodeInfo(...)` | neutralizar a chamada direta a `AccessibilityNodeInfo.setStateDescription` |
+| `Ly2/j;->toString()` | neutralizar/guardar a chamada direta a `AccessibilityNodeInfo.getStateDescription` |
+
+No patch de fonte, preferir helpers que preservem o comportamento em API 30+:
+`AccessibilityCompat.getStateDescription/setStateDescription`, com guarda `SDK_INT >= 30`.
+Não deixar no-ops permanentes se for possível manter a compatibilidade.
+
+## Correções binárias já presentes no `fixed22`
+
+Em `classes-v19.dex`:
+
+- criação de provider `MediaRouter2` (`N4/a`, `N4/e`) ignorada em API < 30;
+- remoção de `View.setWindowInsetsAnimationCallback` em `m1/t`, `S/b1.k2`, `S/n1.e`, `x2/E.m`;
+- remoção de `WindowManager.LayoutParams.setFitInsetsSides/Types`;
+- remoção de `Outline.setPath`;
+- bypass da geração de nós de acessibilidade do Compose
+  (`androidx.compose.ui.platform.b$c.b`);
+- ajustes de MediaRouter edit-mode/null-route;
+- guarda de WorkManager historical exit reasons;
+- guarda de `Window.setDecorFitsSystemWindows`;
+- seleção de `V$e`/`V$i` para WindowInsets;
+- constantes de `AccessibilityAction` definidas como null em API < 30.
+
+Em `classes4-v9.dex`:
+
+- remoção de `Outline.setPath` em `Cf/q$a`;
+- `Context.getAttributionTag` anulada em API antiga;
+- remoção de `Outline.setPath` em `Of/a$a`;
+- retorno antecipado em `Vf/k.onGlobalLayout`;
+- correção de branch em `Wg/u.b`.
+
+O diff de disassembly está em `/tmp/dex-diff.txt`; dumps em `/tmp/am-classes.dump`,
+`/tmp/am-classes4.dump`.
+
+## Artefatos e ferramentas
+
+APK de teste e DEXs:
+
+```
+.pipeline/fix/applemusic-dilink-fixed22.apk
+.pipeline/fix/classes-v19.dex
+.pipeline/fix/classes4-v9.dex
+.pipeline/fix/network_security_config.bin
+```
+
+Scripts:
+
+```
+.pipeline/tools/rebuild_apk_multi.py
+.pipeline/tools/sign_apk_v2.py
+.pipeline/tools/build_nsc_axml.py
+```
+
+Python virtualenv com `androguard`, `requests` e `websocket-client`:
+
+```
+.pipeline/venv
+```
+
+Rebuild do APK de teste:
+
+```sh
+.pipeline/venv/bin/python .pipeline/tools/rebuild_apk_multi.py \
+  .pipeline/dilink/installed-base.apk \
+  .pipeline/fix/applemusic-dilink-fixed23-unsigned.apk \
+  classes.dex=.pipeline/fix/classes-v20.dex \
+  classes4.dex=.pipeline/fix/classes4-v10.dex \
+  res/xml/network_security_config.xml=.pipeline/fix/network_security_config.bin
+```
+
+Assinatura:
+
+```sh
+.pipeline/venv/bin/python .pipeline/tools/sign_apk_v2.py \
+  .pipeline/fix/applemusic-dilink-fixed23-unsigned.apk \
+  .pipeline/fix/applemusic-dilink-fixed23.apk \
+  .pipeline/signing/signer-key.pem \
+  .pipeline/signing/signer-cert.der
+```
+
+Instalação:
+
+```sh
+adb install -r .pipeline/fix/applemusic-dilink-fixed23.apk
+```
+
+**Não commitar** `.pipeline`, keystores, chaves ou artefatos grandes.
+
+## Porta para o patch de fonte
+
+Portar as correções binárias para:
+
+```
+patches/src/main/kotlin/app/morphe/patches/applemusic/dilink/AppleMusicDiLinkPatch.kt
+extensions/extension/src/main/java/app/morphe/extension/applemusic/
+```
+
+Helpers desejados, em vez de no-ops permanentes:
+
+- `OutlineCompat.setPath`;
+- `LayoutParamsCompat.setFitInsetsSides/Types`;
+- `ViewCompat.setWindowInsetsAnimationCallback`;
+- `WindowCompat.setDecorFitsSystemWindows`;
+- `ContextCompat.getAttributionTag`;
+- helpers de acessibilidade (`getStateDescription`/`setStateDescription`);
+- helper de compatibilidade do MediaRouter.
+
+O patch de recursos precisa acrescentar `network_security_config.xml` com referência interna
+a `@raw/apple_ca`. A referência já foi validada: `@raw/apple_ca` resolve para
+`0x7f130000`. Fazer o `domain-config` mais estreito possível.
+
+## Release pendente
+
+Fluxo planejado, **ainda não executado**:
+
+1. Subir `gradle.properties` para `1.0.4`.
+2. Atualizar `patches-bundle.json` com versão, URL e descrição.
+3. Atualizar `README.md` e `analysis/validation.md`; não afirmar que login funciona antes de
+   validar no DiLink.
+4. Não editar `patches-list.json` à mão; regenerar com
+   `:patches:generatePatchesList`.
+5. Como o JVM local está quebrado (`Failed to mark memory page as executable`), criar um
+   workflow de GitHub Actions para:
+
+   ```sh
+   ./gradlew clean :patches:buildAndroid :patches:generatePatchesList
+   ```
+
+   e publicar como artefato `.mpp`.
+6. Baixar o `.mpp`, testar no Morphe Manager e instalar no DiLink.
+7. Validar login e Ajustes no carro.
+8. Só então: commit, push, tag `v1.0.4` e release.
+
+Push, tag e release são ações externas: chamar `confirm` com a ação exata antes.
+
+## Próximos passos, em ordem
+
+1. Reaplicar o patch binário de acessibilidade e gerar `fixed23`.
+2. Instalar no carro e confirmar que `uiautomator dump` não derruba mais o app.
+3. Abrir Movimento e inspecionar a árvore de views; se continuar em branco, capturar
+   inflação/layout e logcat da `PreferenceFragmentCompat`.
+4. Habilitar WebView DevTools e investigar o timeout `LoadingHTML` via CDP.
+5. Verificar `Mescal Code 8` depois que a página carregar.
+6. Portar tudo para o patch de fonte e fazer o `.mpp` via Actions.
+7. Validar no Morphe Manager + DiLink antes da versão/tag.
+
+## Riscos e observações
+
+- O WebView 74 pode não suportar o bundle JavaScript moderno da autenticação Apple; o CDP
+  deve confirmar isso antes de tentar substituir o WebView do sistema.
+- O `uiautomator dump` aciona acessibilidade e derruba o app no estado atual; usar screenshots
+  até o patch de acessibilidade.
+- O ADB do carro é instável e pode cair no meio dos taps.
+- O conteúdo em branco de Movimento pode ser um problema independente de layout/preferência,
+  não apenas de acessibilidade.
+- Não voltar a tentar `CertInstaller` ou qualquer instalação de certificado no DiLink.
