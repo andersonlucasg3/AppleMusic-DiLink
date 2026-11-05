@@ -9,13 +9,16 @@ import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.applemusic.shared.Constants.APPLE_MUSIC_DILINK
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c
 import com.android.tools.smali.dexlib2.iface.ClassDef
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction21c
 import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction35c
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.iface.reference.TypeReference
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference
 
 private const val EXTENSION_PACKAGE = "Lapp/morphe/extension/"
@@ -24,6 +27,7 @@ private const val LIST_COMPAT = "${EXTENSION_PACKAGE}applemusic/ListCompat;"
 private const val INSETS_COMPAT = "${EXTENSION_PACKAGE}applemusic/WindowInsetsControllerCompat;"
 private const val WIFI_COMPAT = "${EXTENSION_PACKAGE}applemusic/WifiInfoCompat;"
 private const val ACCESSIBILITY_COMPAT = "${EXTENSION_PACKAGE}applemusic/AccessibilityCompat;"
+private const val PLATFORM_COMPAT = "${EXTENSION_PACKAGE}applemusic/PlatformCompat;"
 
 /**
  * x2/W and x2/W$a are androidx.core.view.WindowInsetsControllerCompat and its Impl30 after R8.
@@ -209,6 +213,72 @@ internal object PreferenceInsetsKeyboardFingerprint : Fingerprint(
     returnType = "V",
 )
 
+/**
+ * N4/a.<init>(Context) creates the MediaRouter2 provider (N4/e, API 30) when the app has the
+ * matching broadcast receiver. fixed22 skipped the provider creation on the car; here it is
+ * skipped only below API 30, so phones keep the modern provider.
+ */
+internal object MediaRouterProviderFingerprint : Fingerprint(
+    definingClass = "LN4/a;",
+    name = "<init>",
+    parameters = listOf("Landroid/content/Context;"),
+    returnType = "V",
+)
+
+/**
+ * androidx.mediarouter.app.c.<init>(Context, AttributeSet, int) calls View.isInEditMode() and
+ * then initializes a MediaRouter (API 30 routes). fixed22 forced the edit-mode branch; the same
+ * is done here so mRouter stays null and refreshRoute() is null-guarded below.
+ */
+internal object MediaRouterViewInitFingerprint : Fingerprint(
+    definingClass = "Landroidx/mediarouter/app/c;",
+    name = "<init>",
+    parameters = listOf(
+        "Landroid/content/Context;",
+        "Landroid/util/AttributeSet;",
+        "I",
+    ),
+    returnType = "V",
+)
+
+/** Refresh path of the same view: refreshes mRouter without a null check (NPE on the car). */
+internal object MediaRouterViewRefreshFingerprint : Fingerprint(
+    definingClass = "Landroidx/mediarouter/app/c;",
+    name = "refreshRoute",
+    parameters = emptyList(),
+    returnType = "V",
+)
+
+/** x2/V$e.y(View) only throws UnsupportedOperationException; return null below API 30. */
+internal object WindowInsetsImpl20ThrowFingerprint : Fingerprint(
+    definingClass = "Lx2/V\$e;",
+    name = "y",
+    parameters = listOf("Landroid/view/View;"),
+    returnType = "Ln2/b;",
+)
+
+/**
+ * x2/V.<init>(WindowInsets) chooses V$j for API >= 34 and V$i (API 30 impl) for everything
+ * below. The car is API 29, so the second branch has to use V$e (the API 20 impl) there.
+ */
+internal object WindowInsetsCompatInitFingerprint : Fingerprint(
+    definingClass = "Lx2/V;",
+    name = "<init>",
+    parameters = listOf("Landroid/view/WindowInsets;"),
+    returnType = "V",
+)
+
+/**
+ * vf/k.onGlobalLayout does layout work that fixed22 cut short with a return; the rest of the
+ * method is skipped below API 30 only.
+ */
+internal object LegacyLayoutGlobalLayoutFingerprint : Fingerprint(
+    definingClass = "Lvf/k;",
+    name = "onGlobalLayout",
+    parameters = emptyList(),
+    returnType = "V",
+)
+
 /** One "redirect these platform calls to an extension helper" rule. */
 private class RedirectRule(
     val key: String,
@@ -295,6 +365,49 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
     }
     return counts
 }
+
+/**
+ * Replaces every read of one of the given static fields with `const/4 vX, 0`.
+ *
+ * Used for the AccessibilityAction constants added in API 30: their class exists on API 29 but
+ * the fields do not, so a field read throws NoSuchFieldError while the accessibility bridge
+ * initializes.
+ */
+private fun BytecodePatchContext.nullFields(
+    targetClass: String,
+    fieldNames: Set<String>,
+    expectedCalls: Int,
+) {
+    var count = 0
+    classDefForEach { classDef ->
+        if (classDef.type.startsWith(EXTENSION_PACKAGE)) return@classDefForEach
+        for (method in mutableClassDefBy(classDef).methods) {
+            val implementation = method.implementation ?: continue
+            val replacements = implementation.instructions.mapIndexedNotNull { index, instruction ->
+                val field = (instruction as? ReferenceInstruction)?.reference as? FieldReference
+                    ?: return@mapIndexedNotNull null
+                if (field.definingClass != targetClass || field.name !in fieldNames) {
+                    return@mapIndexedNotNull null
+                }
+                index to (instruction as Instruction21c).registerA
+            }
+            for ((index, register) in replacements) {
+                implementation.replaceInstruction(
+                    index,
+                    BuilderInstruction11n(Opcode.CONST_4, register, 0),
+                )
+                count++
+            }
+        }
+    }
+    check(count == expectedCalls) {
+        "Expected $expectedCalls $targetClass field reads, replaced $count"
+    }
+}
+
+private fun Instruction.isNewInstanceOf(type: String): Boolean =
+    opcode == Opcode.NEW_INSTANCE &&
+        ((this as? ReferenceInstruction)?.reference as? TypeReference)?.type == type
 
 @Suppress("unused")
 val appleMusicDiLinkPatch = bytecodePatch(
@@ -432,6 +545,83 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     helperClass = INSETS_COMPAT,
                     helperParameters = { listOf("Ljava/lang/Object;", "I") },
                     expectedCalls = 2,
+                ),
+                // API 30 platform calls that fixed22 had removed from the binary by hand. They
+                // are redirected to PlatformCompat, which keeps the API 30 behavior and degrades
+                // to null/false/empty/no-op on API 29.
+                RedirectRule(
+                    key = "View.setWindowInsetsAnimationCallback",
+                    targetClass = "Landroid/view/View;",
+                    targetNames = setOf("setWindowInsetsAnimationCallback"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "Ljava/lang/Object;") },
+                    expectedCalls = 4,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "LayoutParams.setFitInsetsSides",
+                    targetClass = "Landroid/view/WindowManager\$LayoutParams;",
+                    targetNames = setOf("setFitInsetsSides"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "I") },
+                    expectedCalls = 1,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "LayoutParams.setFitInsetsTypes",
+                    targetClass = "Landroid/view/WindowManager\$LayoutParams;",
+                    targetNames = setOf("setFitInsetsTypes"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "I") },
+                    expectedCalls = 1,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "Outline.setPath",
+                    targetClass = "Landroid/graphics/Outline;",
+                    targetNames = setOf("setPath"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "Ljava/lang/Object;") },
+                    expectedCalls = 4,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "Context.getAttributionTag",
+                    targetClass = "Landroid/content/Context;",
+                    targetNames = setOf("getAttributionTag"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;") },
+                    expectedCalls = 1,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "ActivityManager.getHistoricalProcessExitReasons",
+                    targetClass = "Landroid/app/ActivityManager;",
+                    targetNames = setOf("getHistoricalProcessExitReasons"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = {
+                        listOf("Ljava/lang/Object;", "Ljava/lang/String;", "I", "I")
+                    },
+                    expectedCalls = 3,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "View.isShowingLayoutBounds",
+                    targetClass = "Landroid/view/View;",
+                    targetNames = setOf("isShowingLayoutBounds"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;") },
+                    expectedCalls = 1,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "Window.setDecorFitsSystemWindows",
+                    targetClass = "Landroid/view/Window;",
+                    targetNames = setOf("setDecorFitsSystemWindows"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "Z") },
+                    expectedCalls = 3,
+                    opcode = Opcode.INVOKE_VIRTUAL,
                 ),
                 // Accessibility state descriptions were added in API 30. The app was built with
                 // minSdk 30, so R8 kept these calls unguarded; the first one executed (from the
@@ -725,6 +915,130 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     return-void
                 """,
                 ExternalLabel("supported", getInstruction(0)),
+            )
+        }
+
+        // AccessibilityAction constants added in API 30: the class exists on API 29, the fields
+        // do not. The clinit of y2/j$a reads four of them while the accessibility tree starts,
+        // so they become null (the same null fixed22 used).
+        nullFields(
+            "Landroid/view/accessibility/AccessibilityNodeInfo\$AccessibilityAction;",
+            setOf(
+                "ACTION_SHOW_TOOLTIP",
+                "ACTION_HIDE_TOOLTIP",
+                "ACTION_PRESS_AND_HOLD",
+                "ACTION_IME_ENTER",
+            ),
+            expectedCalls = 4,
+        )
+
+        // N4/a.<init>: skip the MediaRouter2 provider (N4/e) on API < 30. At the injection
+        // point v0 holds the receiver-count condition (dead afterwards) and v3 is reused by the
+        // original new-instance on the next instruction, so both are free; v6/v7 are kept.
+        MediaRouterProviderFingerprint.method.apply {
+            val index = implementation?.instructions?.indexOfFirst {
+                it.isNewInstanceOf("LN4/e;")
+            } ?: -1
+            check(index >= 0) { "N4/a.<init> has no MediaRouter2 provider creation" }
+            addInstructionsWithLabels(
+                index,
+                """
+                    sget v0, $SDK_INT
+                    const/16 v3, 0x1e
+                    if-ge v0, v3, :legacy
+                    goto :orig
+                    :legacy
+                    goto :after
+                """,
+                ExternalLabel("orig", getInstruction(index)),
+                ExternalLabel("after", getInstruction(index + 5)),
+            )
+        }
+
+        // androidx.mediarouter.app.c.<init>: force the View.isInEditMode() result to true, so
+        // mRouter is left null and nothing uses the API 30 MediaRouter routes. Mirrors fixed22.
+        MediaRouterViewInitFingerprint.method.apply {
+            val index = implementation?.instructions?.indexOfFirst {
+                it.methodCalled("Landroid/view/View;", setOf("isInEditMode")) != null
+            } ?: -1
+            check(index >= 0) { "mediarouter c.<init> has no isInEditMode call" }
+            addInstructionsWithLabels(
+                index,
+                """
+                    const/4 v7, 0x1
+                    goto :after
+                """,
+                ExternalLabel("after", getInstruction(index + 2)),
+            )
+        }
+
+        // androidx.mediarouter.app.c.refreshRoute(): mRouter can be null after the edit-mode
+        // branch above. 3 registers -> v0 holds mRouter, so test it before getClass().
+        MediaRouterViewRefreshFingerprint.method.apply {
+            val instructions = implementation?.instructions ?: error("refreshRoute has no code")
+            addInstructionsWithLabels(
+                1,
+                "if-eqz v0, :done",
+                ExternalLabel("done", getInstruction(instructions.size - 1)),
+            )
+        }
+
+        // x2/V$e.y(View): the Impl20 class only throws here; return null instead.
+        WindowInsetsImpl20ThrowFingerprint.method.addInstructions(
+            0,
+            """
+                const/4 v0, 0x0
+                return-object v0
+            """,
+        )
+
+        // x2/V.<init>(WindowInsets): for API < 34 the original picks V$i (Impl30). On API 29 it
+        // must use V$e (Impl20); 30-33 can keep V$i. v0/v1 are dead after the SDK check at the
+        // original entry; v2 is this and v3 the WindowInsets.
+        WindowInsetsCompatInitFingerprint.method.apply {
+            val index = implementation?.instructions?.indexOfFirst {
+                it.isNewInstanceOf("Lx2/V\$i;")
+            } ?: -1
+            check(index >= 0) { "x2/V.<init> has no V\$i branch" }
+            addInstructionsWithLabels(
+                index,
+                """
+                    sget v0, $SDK_INT
+                    const/16 v1, 0x1e
+                    if-ge v0, v1, :legacy
+                    goto :orig
+                    :legacy
+                    new-instance v0, Lx2/V${'$'}e;
+                    invoke-direct {v0, v2, v3}, Lx2/V${'$'}e;-><init>(Lx2/V; Landroid/view/WindowInsets;)V
+                    goto :store
+                """,
+                ExternalLabel("orig", getInstruction(index)),
+                ExternalLabel("store", getInstruction(index + 2)),
+            )
+        }
+
+        // vf/k.onGlobalLayout: fixed22 cut the method short right before the ContextWrapper
+        // branch. Only skip the remainder below API 30; v4 is the destination of the original
+        // instance-of, so it is free for the SDK test.
+        LegacyLayoutGlobalLayoutFingerprint.method.apply {
+            val index = implementation?.instructions?.indexOfFirst { instruction ->
+                instruction.opcode == Opcode.INSTANCE_OF &&
+                    ((instruction as? ReferenceInstruction)?.reference as? TypeReference)?.type ==
+                    "Landroid/content/ContextWrapper;"
+            } ?: -1
+            check(index >= 0) { "vf/k.onGlobalLayout has no ContextWrapper check" }
+            addInstructionsWithLabels(
+                index,
+                """
+                    sget v4, $SDK_INT
+                    invoke-static {v4}, $INSETS_COMPAT->isAtLeast30(I)Z
+                    move-result v4
+                    if-eqz v4, :legacy
+                    goto :orig
+                    :legacy
+                    return-void
+                """,
+                ExternalLabel("orig", getInstruction(index)),
             )
         }
     }
