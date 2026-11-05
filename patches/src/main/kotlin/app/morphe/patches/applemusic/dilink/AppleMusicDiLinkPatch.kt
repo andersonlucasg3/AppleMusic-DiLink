@@ -1009,12 +1009,12 @@ val appleMusicDiLinkPatch = bytecodePatch(
         }
 
         // android.os.ext.SdkExtensions is an API 30 class called from androidx.core/MediaDrm
-        // paths on worker threads; 16 call sites across classes.dex/classes4.dex.
+        // paths on worker threads; 15 call sites in the merged 7.0.0 XAPK.
         redirectStaticCalls(
             targetClass = "Landroid/os/ext/SdkExtensions;",
             targetName = "getExtensionVersion",
             helperClass = PLATFORM_COMPAT,
-            expectedCalls = 16,
+            expectedCalls = 15,
         )
 
         // AccessibilityAction constants added in API 30: the class exists on API 29, the fields

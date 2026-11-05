@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-05T02:54:21",
-  "description": "## [1.0.6](https://github.com/andersonlucasg3/AppleMusic-DiLink/releases/tag/v1.0.6)\n\nCorrige o crash de launch em API 29 no `ViewCompat.setWindowInsetsAnimationCallback`: o adaptador `x2/U$c$a` estende `android.view.WindowInsetsAnimation.Callback` (API 30) e era carregado mesmo com a chamada de plataforma já redirecionada; agora a construção é neutralizada. Também redireciona `android.os.ext.SdkExtensions.getExtensionVersion` (API 30, 16 call sites) para 0 em API 29. Mantém as correções de runtime da 1.0.5 e o TLS/acessibilidade da 1.0.4. **Em validação no DiLink**.",
-  "download_url": "https://github.com/andersonlucasg3/AppleMusic-DiLink/releases/download/v1.0.6/patches-1.0.6.mpp",
+  "created_at": "2026-11-05T03:00:44",
+  "description": "## [1.0.7](https://github.com/andersonlucasg3/AppleMusic-DiLink/releases/tag/v1.0.7)\n\nAjusta a contagem de call sites de `android.os.ext.SdkExtensions.getExtensionVersion` para o XAPK 7.0.0 (15 no pacote mesclado; o APK de referência tinha 16). O patch da 1.0.6 falhava ao aplicar com \"Expected 16 ... redirected 15\". Mantém todas as correções de runtime da 1.0.6, o TLS e a acessibilidade. **Em validação no DiLink.**",
+  "download_url": "https://github.com/andersonlucasg3/AppleMusic-DiLink/releases/download/v1.0.7/patches-1.0.7.mpp",
   "signature_download_url": "",
-  "version": "1.0.6"
+  "version": "1.0.7"
 }
