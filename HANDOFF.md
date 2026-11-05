@@ -30,19 +30,24 @@ O DiLink não estava acessível nesta sessão. Foi feito o que não depende dele
   `patches-list.json` sem JVM local. Precisa dos secrets `GPR_KEY` (token com `read:packages`) e
   `GPR_USER`, porque o `GITHUB_TOKEN` do repositório não lê o registry da organização MorpheApp.
   Os secrets foram configurados e o workflow rodou com sucesso
-  ([run 41949990523](https://github.com/andersonlucasg3/AppleMusic-DiLink/actions/runs/41949990523),
-  build em 1m41s): `patches-1.0.3.mpp` (708.777 B) + `patches-list.json` gerados, com
+  ([run 41950676081](https://github.com/andersonlucasg3/AppleMusic-DiLink/actions/runs/41950676081),
+  build em 2m01s): `patches-1.0.4.mpp` (708.779 B) + `patches-list.json` gerados, com
   `Patcher-Version: 1.6.0`, `classes.dex` e `extensions/extension.mpe` contendo
   `AccessibilityCompat`.
-- O bundle foi salvo em `Downloads/Buddy/patches-1.0.3-api29-a11y-tls.mpp` no celular; **ainda
-  não foi aplicado nem testado** (o carro não estava acessível).
-- Commits: `96bb7a4` (porta a11y/TLS + CI) e `dfdbad4` (correção do setup do Android SDK no
-  runner), na `main`. Sem tag e sem release.
+- **Release 1.0.4 publicada** em
+  <https://github.com/andersonlucasg3/AppleMusic-DiLink/releases/tag/v1.0.4> com o asset
+  `patches-1.0.4.mpp` (SHA-256 `2a185656a6e13a46023e289f32da8366e694b9d6aac4ad279f15ac31cd330c1a`).
+  `patches-bundle.json` e `patches-list.json` apontam para 1.0.4. O bundle foi salvo em
+  `Downloads/Buddy/patches-1.0.4.mpp` no celular.
+- **Ainda não aplicado nem testado no carro** (o DiLink não estava acessível); a decisão foi
+  publicar a 1.0.4 mesmo assim e seguir numa nova versão se aparecerem mais problemas.
+- Commits: `96bb7a4` (porta a11y/TLS + CI), `dfdbad4` (setup do Android SDK no runner),
+  `3230692` (versão 1.0.4), `8c31f47` (patches-list gerado). Tag `v1.0.4` no `8c31f47`.
 - O JVM local continua quebrado (`Failed to mark memory page as executable`).
 
 ### Pendências quando o carro voltar
 
-1. Rodar o workflow (ou build local) e baixar o `.mpp` novo.
+1. Baixar `patches-1.0.4.mpp` da release e aplicar ao XAPK 7.0.0 (Morphe Manager ou CLI).
 2. Instalar no DiLink e repetir: `uiautomator dump` sem derrubar o app; Ajustes → Movimento;
    login até o WebView.
 3. Investigar o timeout `LoadingHTML` via WebView DevTools (CDP) — sem isso o login continua
@@ -66,18 +71,20 @@ Fazer o Apple Music 7.0.0 (`com.apple.android.music`, versionCode 1614) rodar no
 - **Não instalar certificado no DiLink.** Essa abordagem foi tentada e não é opção.
 - O app deve funcionar apenas com o **patch Morphe** aplicado ao APK e a instalação normal.
 - O formato de distribuição/teste correto é o `.mpp` do Morphe, mas ele não corrige sozinho
-  incompatibilidades de runtime; a release só deve sair depois de login e Ajustes passarem no carro.
+  incompatibilidades de runtime. Até a 1.0.3 a regra era lançar só depois de login e Ajustes
+  passarem no carro; em 2026-11-05 o usuário decidiu publicar a **1.0.4 sem essa validação** e
+  seguir numa nova versão se aparecerem mais problemas.
 
 ## Estado do repositório
 
 - Repositório: `/root/.buddy/work/AppleMusic-DiLink`
 - Branch: `main`
-- HEAD: `0f70690 fix: avoid resolving WindowInsetsController on API 29 startup`
+- HEAD: `8c31f47 chore: regenerate patches-list for 1.0.4`
 - Working tree: limpo quando este handoff foi escrito.
-- Tags existentes: `v1.0.0`, `v1.0.1`, `v1.0.2`, `v1.0.3`.
-- Versão em `gradle.properties`: `1.0.3`.
-- `patches-bundle.json` ainda aponta para `1.0.3`.
-- **Nenhum commit, push, tag ou release foi feito nesta sessão.**
+- Tags existentes: `v1.0.0`, `v1.0.1`, `v1.0.2`, `v1.0.3`, `v1.0.4`.
+- Versão em `gradle.properties`: `1.0.4`.
+- `patches-bundle.json` e `patches-list.json` apontam para `1.0.4`.
+- Release `v1.0.4` publicada (asset `patches-1.0.4.mpp`).
 
 ## Estado do carro
 
@@ -323,27 +330,20 @@ O patch de recursos precisa acrescentar `network_security_config.xml` com refer�
 a `@raw/apple_ca`. A referência já foi validada: `@raw/apple_ca` resolve para
 `0x7f130000`. Fazer o `domain-config` mais estreito possível.
 
-## Release pendente
+## Release 1.0.4
 
-Fluxo planejado, **ainda não executado**:
+**Executada em 2026-11-05** (sem validação no carro, por decisão do usuário):
 
-1. Subir `gradle.properties` para `1.0.4`.
-2. Atualizar `patches-bundle.json` com versão, URL e descrição.
-3. Atualizar `README.md` e `analysis/validation.md`; não afirmar que login funciona antes de
-   validar no DiLink.
-4. Não editar `patches-list.json` à mão; regenerar com
-   `:patches:generatePatchesList`.
-5. Como o JVM local está quebrado (`Failed to mark memory page as executable`), criar um
-   workflow de GitHub Actions para:
+1. `gradle.properties` → `1.0.4`.
+2. `patches-bundle.json` atualizado com versão, URL e descrição.
+3. `README.md` e `analysis/validation.md` atualizados sem afirmar que login funciona.
+4. `patches-list.json` regenerado no CI (`:patches:generatePatchesList`), não editado à mão.
+5. Workflow de GitHub Actions criado e usado (o JVM local continua quebrado).
+6. `patches-1.0.4.mpp` baixado e conferido (SHA-256).
+7. Tag `v1.0.4` e release publicadas com o asset.
 
-   ```sh
-   ./gradlew clean :patches:buildAndroid :patches:generatePatchesList
-   ```
-
-   e publicar como artefato `.mpp`.
-6. Baixar o `.mpp`, testar no Morphe Manager e instalar no DiLink.
-7. Validar login e Ajustes no carro.
-8. Só então: commit, push, tag `v1.0.4` e release.
+Pendente da lista original: aplicar no Morphe Manager/DiLink, validar login e Ajustes no carro.
+Se algo falhar, corrigir e lançar a próxima versão.
 
 Push, tag e release são ações externas: chamar `confirm` com a ação exata antes.
 
