@@ -4,6 +4,13 @@
 > Head unit alvo (**DiLink 3.0, Android 10/API 29**) ainda não testado — é o único alvo que exercita
 > o backport de API 30. Data: 2026-11-03.
 
+## 0. Versão 1.0.4 (2026-11-05)
+
+A 1.0.4 leva para o bundle o backport de acessibilidade e o trust TLS descobertos na depuração
+do DiLink. Ela foi **compilada** (GitHub Actions, `patches-1.0.4.mpp`) e o workflow de CI rodou
+verde, mas **não foi aplicada nem testada no carro** nesta data. Os testes de aparelho abaixo
+referem-se às versões anteriores (1.0.0–1.0.3); não valem como validação da 1.0.4.
+
 ## 1. APK patcheado (CLI desktop)
 
 | Passo | Resultado |
