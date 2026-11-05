@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.Outline;
 import android.graphics.Path;
 import android.os.Build;
+import android.os.ext.SdkExtensions;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsetsAnimation;
@@ -75,6 +76,15 @@ public final class PlatformCompat {
         }
     }
 
+    /**
+     * android.os.ext.SdkExtensions (API 30). The app calls it unconditionally from
+     * androidx.core/MediaDrm paths; on API 29 the class does not exist, so the extension version
+     * is 0 (the value the platform reports for an absent extension).
+     */
+    public static int getExtensionVersion(int extension) {
+        return Build.VERSION.SDK_INT >= 30 ? Api30.getExtensionVersion(extension) : 0;
+    }
+
     private static final class Api30 {
 
         private Api30() {
@@ -112,6 +122,10 @@ public final class PlatformCompat {
 
         static void setDecorFitsSystemWindows(Object window, boolean fitSystemWindows) {
             ((Window) window).setDecorFitsSystemWindows(fitSystemWindows);
+        }
+
+        static int getExtensionVersion(int extension) {
+            return SdkExtensions.getExtensionVersion(extension);
         }
     }
 }

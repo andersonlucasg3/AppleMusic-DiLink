@@ -9,6 +9,7 @@ import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.util.smali.ExternalLabel
 import app.morphe.patches.applemusic.shared.Constants.APPLE_MUSIC_DILINK
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction10x
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c
 import com.android.tools.smali.dexlib2.iface.ClassDef
@@ -279,6 +280,18 @@ internal object LegacyLayoutGlobalLayoutFingerprint : Fingerprint(
     returnType = "V",
 )
 
+/**
+ * x2/E.m(View, x2/U$b) is ViewCompat.setWindowInsetsAnimationCallback: it constructs
+ * x2/U$c$a, which extends android.view.WindowInsetsAnimation.Callback (API 30). Loading that
+ * class kills the process on API 29, even before the redirected platform call is reached.
+ */
+internal object ViewCompatAnimationFingerprint : Fingerprint(
+    definingClass = "Lx2/E;",
+    name = "m",
+    parameters = listOf("Landroid/view/View;", "Lx2/U\$b;"),
+    returnType = "V",
+)
+
 /** One "redirect these platform calls to an extension helper" rule. */
 private class RedirectRule(
     val key: String,
@@ -364,6 +377,62 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
         check(count == expected) { "Expected $expected $key call sites, redirected $count" }
     }
     return counts
+}
+
+/**
+ * Rewrites every invoke-static of a platform method to the same-signature static helper (no
+ * receiver argument). Used for android.os.ext.SdkExtensions.getExtensionVersion(int).
+ */
+private fun BytecodePatchContext.redirectStaticCalls(
+    targetClass: String,
+    targetName: String,
+    helperClass: String,
+    expectedCalls: Int,
+) {
+    var count = 0
+    classDefForEach { classDef ->
+        if (classDef.type.startsWith(EXTENSION_PACKAGE)) return@classDefForEach
+        for (method in mutableClassDefBy(classDef).methods) {
+            val implementation = method.implementation ?: continue
+            val indexes = implementation.instructions.mapIndexedNotNull { index, instruction ->
+                val reference = (instruction as? ReferenceInstruction)?.reference as? MethodReference
+                if (instruction.opcode == Opcode.INVOKE_STATIC &&
+                    reference?.definingClass == targetClass &&
+                    reference.name == targetName
+                ) {
+                    index
+                } else {
+                    null
+                }
+            }
+            for (index in indexes) {
+                val instruction = implementation.instructions[index] as Instruction35c
+                val reference = (instruction as ReferenceInstruction).reference as MethodReference
+                implementation.replaceInstruction(
+                    index,
+                    BuilderInstruction35c(
+                        Opcode.INVOKE_STATIC,
+                        instruction.registerCount,
+                        instruction.registerC,
+                        instruction.registerD,
+                        instruction.registerE,
+                        instruction.registerF,
+                        instruction.registerG,
+                        ImmutableMethodReference(
+                            helperClass,
+                            targetName,
+                            reference.parameterTypes,
+                            reference.returnType,
+                        ),
+                    ),
+                )
+                count++
+            }
+        }
+    }
+    check(count == expectedCalls) {
+        "Expected $expectedCalls $targetClass->$targetName calls, redirected $count"
+    }
 }
 
 /**
@@ -686,6 +755,27 @@ val appleMusicDiLinkPatch = bytecodePatch(
             ),
         )
 
+        // x2/E.m constructs the platform adapter x2/U$c$a (extends
+        // android.view.WindowInsetsAnimation.Callback, API 30). fixed22 removed the whole body;
+        // here the new-instance/invoke-direct are neutralized so v0 stays null and the redirected
+        // View.setWindowInsetsAnimationCallback call receives null. On API 29 the helper is a
+        // no-op; on API 30+ the callback is simply not installed (animation-only degradation).
+        ViewCompatAnimationFingerprint.method.apply {
+            val implementation = implementation ?: error("x2/E.m has no implementation")
+            val adapterIndex = implementation.instructions.indexOfFirst {
+                it.isNewInstanceOf("Lx2/U\$c\$a;")
+            }
+            check(adapterIndex >= 0) { "x2/E.m has no WindowInsetsAnimation adapter" }
+            implementation.replaceInstruction(
+                adapterIndex,
+                BuilderInstruction11n(Opcode.CONST_4, 0, 0),
+            )
+            implementation.replaceInstruction(
+                adapterIndex + 1,
+                BuilderInstruction10x(Opcode.NOP),
+            )
+        }
+
         // x2/W$a.<init>(Window, x2/v): 4 registers, ins 3 -> v0 free, v1 = this, v2 = window,
         // v3 = impl. Morphe 2.1.0 has no addFreeRegisters, and there is no second free register
         // for a comparison constant, so the SDK test goes through the pure helper
@@ -917,6 +1007,15 @@ val appleMusicDiLinkPatch = bytecodePatch(
                 ExternalLabel("supported", getInstruction(0)),
             )
         }
+
+        // android.os.ext.SdkExtensions is an API 30 class called from androidx.core/MediaDrm
+        // paths on worker threads; 16 call sites across classes.dex/classes4.dex.
+        redirectStaticCalls(
+            targetClass = "Landroid/os/ext/SdkExtensions;",
+            targetName = "getExtensionVersion",
+            helperClass = PLATFORM_COMPAT,
+            expectedCalls = 16,
+        )
 
         // AccessibilityAction constants added in API 30: the class exists on API 29, the fields
         // do not. The clinit of y2/j$a reads four of them while the accessibility tree starts,
