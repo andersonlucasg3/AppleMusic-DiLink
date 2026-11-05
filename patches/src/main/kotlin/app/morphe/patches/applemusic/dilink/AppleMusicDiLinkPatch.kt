@@ -934,7 +934,7 @@ val appleMusicDiLinkPatch = bytecodePatch(
                 """
                     sget v8, $SDK_INT
                     const/16 v1, 0x1e
-                    if-ge v8, v1, :insets
+                    if-lt v8, v1, :insets
                 """,
                 ExternalLabel("insets", getInstruction(hideIndex + 1)),
             )
@@ -1044,7 +1044,7 @@ val appleMusicDiLinkPatch = bytecodePatch(
                 """
                     sget v0, $SDK_INT
                     const/16 v3, 0x1e
-                    if-ge v0, v3, :legacy
+                    if-lt v0, v3, :legacy
                     goto :orig
                     :legacy
                     goto :after
@@ -1104,7 +1104,7 @@ val appleMusicDiLinkPatch = bytecodePatch(
                 """
                     sget v0, $SDK_INT
                     const/16 v1, 0x1e
-                    if-ge v0, v1, :legacy
+                    if-lt v0, v1, :legacy
                     goto :orig
                     :legacy
                     new-instance v0, Lx2/V${'$'}e;
