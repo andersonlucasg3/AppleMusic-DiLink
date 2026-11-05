@@ -36,6 +36,10 @@ internal val dilinkManifestPatch = resourcePatch(
                     activity.removeAttribute("android:screenOrientation")
                 }
             }
+
+            // TEMP debug: make the app debuggable so run-as can inspect the ADI/Anisette files.
+            val application = manifest.getElementsByTagName("application").item(0) as Element
+            application.setAttribute("android:debuggable", "true")
         }
     }
 }

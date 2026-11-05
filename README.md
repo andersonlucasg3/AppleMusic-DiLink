@@ -6,14 +6,15 @@ Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.
 Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 28/29 e rodar sem
 GMS/Play Integrity.
 
-> **Estado atual:** bundle com landscape/tablet, `minSdk` 29, backport das chamadas API 30
-> (incluindo acessibilidade), confiança TLS interna para `gsd.apple.com` e bypass do Play
-> Integrity. Validado: build, aplicação no APK, bytecode, carregamento no patcher do Manager
-> (1.15.0), **fluxo completo no Morphe mobile** (source → patch → instalação → app abre) e
-> **startup sem GMS** (Play Services desativado no S24: app abriu e carregou a home sem crash).
-> No Galaxy S24/Android 16 o patch de landscape também foi confirmado
-> (`requestedOrientation=UNSPECIFIED`, UI em `land`). **Falta o runtime no DiLink (Android 10)**,
-> que é o único alvo que exercita o backport API 29 — o login ainda esbarra no WebView 74.
+> **Estado atual (2026-11-05):** o app **instala, abre e navega no DiLink** (API 29, landscape),
+> e o fluxo de login chega ao **2FA da Apple e o aceita** no S24. Os assets JS da Apple são
+> transpilados para Chrome 74 no build e servidos pelo próprio APK; o Anisette é suprido por um
+> servidor remoto v3. **Bloqueio atual:** o passo final `AMSIDMSAuthenticationCompleteAction`
+> (*commerce auth*, Anisette **V1.5/AMD**) falha com `commerceAuthenticationFailed`; o ADI nativo
+> retorna `-45061` em APK re-assinado. Root não é uma opção no carro.
+>
+> Validado: build, aplicação no APK, bytecode, carregamento no patcher do Manager, fluxo completo
+> no Morphe mobile, startup sem GMS e runtime no DiLink.
 
 ## Patches
 
@@ -22,22 +23,27 @@ GMS/Play Integrity.
 | `Apple Music DiLink support` | sim | `m1.x()` passa a devolver `K.TABLET` (destrava a rotação: `MainActivity` deixa de fixar `SENSOR_PORTRAIT`); `EmojiSearchFragment$a.onGlobalLayout()` retorna cedo em API < 30 (evita `NoSuchMethodError` em `WindowInsets.Type`/`setDecorFitsSystemWindows`); `getAppIntegrityToken()` devolve `null`, caminho que o app já trata; backport de `Objects.requireNonNullElse*`, `List.of`, `WifiInfo.getWifiStandard`, das chamadas de `WindowInsetsController` e dos acessores de *state description* (`View`/`AccessibilityNodeInfo`, API 30). |
 | `Apple Music DiLink manifest` | não (dependência) | `minSdkVersion` 30 → 29 e remove `screenOrientation="portrait"` da única activity que o declarava (`MLIChromeTabActivity`), eliminando a feature implícita `android.hardware.screen.portrait`. |
 | `Apple Music DiLink TLS trust` | não (dependência) | Substitui `res/xml/network_security_config.xml` para confiar em `@raw/apple_ca` (Apple Root CA - G3, já embutida no APK) **apenas** em `gsd.apple.com`; o resto continua usando o store do sistema. Nada é instalado no head unit. |
+| `Apple Music DiLink web assets` | sim | Embute os assets JS da Apple (page + chunks `appleauth`) **transpilados para Chrome 74** dentro de `res/raw/js_ams_adaptor.js`; `PlatformCompat.interceptWebResource` serve esses assets em `shouldInterceptRequest`. Sem isso o WebView 74 do DiLink não parseia o ES2020 da Apple. |
 
 Evidências da análise (com `arquivo:linha`) em [`analysis/apple-music-7.0.0.md`](analysis/apple-music-7.0.0.md);
 resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validation.md).
 
 ### Limitações conhecidas
 
-- **Android 10 (API 29) ainda não validado no carro.** A varredura de APIs ([`analysis/api-levels.md`](analysis/api-levels.md))
-  mostrou que o R8 removeu os guards `SDK_INT >= 30` das próprias bibliotecas. O patch agora cobre os
-  pontos mapeados (insets/`WindowInsetsController`, `Objects.requireNonNullElse*`, `List.of`,
-  `WifiInfo.getWifiStandard`, teclado de preferências e *state description* de acessibilidade), mas
-  ainda falta o teste no DiLink. Para API 28 há ainda `m1.<clinit>` (`FontStyle`), fora do escopo.
-- **Login:** depois do TLS dentro do APK o servidor responde (HTTP 200), mas o WebView 74 do DiLink
-  falha no bootstrap (`LoadingHTML` timeout); a causa provável é JavaScript moderno demais para esse
-  WebView. Ainda não resolvido/testado.
-- O bypass de integrity só cobre o lado Java. Se o servidor da Apple **exigir** o token, o próximo
-  alvo é `libAMSKit.so` (nativo, FairPlay/FPDI) — não resolvido.
+- **API 29 validada no DiLink**: o app abre, renderiza no landscape e navega. O backport cobre os
+  pontos mapeados em [`analysis/api-levels.md`](analysis/api-levels.md) (insets/`WindowInsetsController`,
+  `Objects.requireNonNullElse*`, `List.of`, `WifiInfo.getWifiStandard`, acessibilidade) e agora também
+  `IBinder.getSuggestedMaxIpcSizeBytes()` (API 30, usado por `p507z3.C7059k`). Para API 28 ainda há
+  `m1.<clinit>` (`FontStyle`), fora do escopo.
+- **Login — bloqueio atual:** o WebView 74 foi resolvido (assets JS transpilados e servidos pelo APK),
+  e a Apple **aceita e-mail, senha e o código 2FA**. O passo final `AMSIDMSAuthenticationCompleteAction`
+  (*commerce auth*, Anisette **V1.5/AMD**) falha com `commerceAuthenticationFailed` e apaga o
+  provisionamento. O `libCoreADI` retorna `-45061` em APK re-assinado; ele importa só `libc` (sem JNI,
+  rede ou SSL), então o erro é de estado local, não uma checagem de assinatura via `PackageManager`.
+- O `adi.pb` do iTunes Windows **não** funciona no Android (identidade ligada ao keychain do Windows),
+  e o Apple Music da MS Store usa **PlayReady** (não gera `adi.pb`).
+- **Root não é uma opção** no DiLink; o caminho restante é patch/provider (V1.5/AMD) ou RE do
+  `libCoreADI`.
 - O APK final é um **APK único merged** (a CLI funde os splits) e é assinado com `CN=Morphe`:
   é preciso desinstalar o Apple Music oficial antes de instalar o patcheado.
 

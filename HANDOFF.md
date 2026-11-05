@@ -391,3 +391,42 @@ Push, tag e release são ações externas: chamar `confirm` com a ação exata a
   - Conclusão: o re-sign quebra o atestado (Play Integrity/FairPlay ADI). Login em APK
     patcheado provavelmente exige bypass de atestação server-side — não resolvido.
 
+## Sessão 2026-11-05 (login, continuação)
+
+Progresso concreto (tudo na fonte/mpp):
+
+- **JS da Apple no WebView 74**: `assets/index.js` e os chunks `appleauth` usam ES2020
+  (`?.`, `??`), que o Chromium 74 não parseia. Foi criado `tools/fetch_assets.js` +
+  `tools/assemble_assets.js` + esbuild (`tools/transpile_assets.js`), o blob
+  `assets/transpiled_assets.bin` é publicado no repo e embutido em
+  `res/raw/js_ams_adaptor.js` por `DilinkWebAssetsPatch`; `PlatformCompat.interceptWebResource`
+  serve os assets transpilados em `shouldInterceptRequest`.
+- **Anisette**: `PlatformCompat.applyAnisetteHeaders` injeta headers v3 do servidor
+  `ani.sidestore.io` no interceptor de StoreAPI (`tb.a.a`); `remoteOtpResponse` substitui o
+  `IAnisetteProvider.request` (classe dex `Le7/d;`, método `request-4PLdz1A`). O provider
+  nativo (`Le7/k`) também foi substituído (`request`, `startProvisioning`, `synchronize`,
+  `finishProvisioning`, `eraseProvisioning`, `dispose`), com `Expected` construído por reflexão.
+- **API 30 extra**: `IBinder.getSuggestedMaxIpcSizeBytes()` (p507z3.C7059k) redirecionado.
+- **Resultado**: e-mail/senha e **2FA são aceitos no S24** (código 324808 validado);
+  o passo final `AMSIDMSAuthenticationCompleteAction` (commerce auth, **Anisette V1.5/AMD**)
+  ainda falha com `commerceAuthenticationFailed` e apaga o provisionamento. O ADI nativo
+  retorna `-45061` em qualquer build re-assinado; semear `adi.pb` do iTunes Windows não
+  resolveu (identidade ligada ao keychain do Windows).
+- Apple Music da MS Store usa **PlayReady**, não gera `adi.pb`.
+- **`libCoreADI.so` importa apenas `libc`/`libdl`** (sem JNI, PackageManager, rede ou SSL):
+  `open/lstat/fstat/read/write/mkdir/__system_property_get/gettimeofday`. Logo o `-45061` é
+  estado local (arquivos/propriedades), não uma checagem de assinatura via Java. A hipótese
+  mais forte agora é que o **provisionamento nunca completa** (o intercâmbio com a Apple é feito
+  pelo StoreApi, fora da lib), possivelmente por falta de token de integrity válido.
+- Substituto do provider levado ao limite: `Le7/d.request-4PLdz1A`, `provisioning`,
+  `synchronize`, `eraseProvisioning` e o provider nativo `Le7/k` (`request`, `start`, `finish`,
+  `sync`, `erase`, `dispose`) foram trocados por respostas nossas. `remoteOtpResponse` funciona
+  até para `dsid=-2`; falsificar `startProvisioning`/`synchronize` faz o fluxo cair em
+  “Ocorreu um problema ao conectar com o servidor” antes do 2FA — ou seja, o AMSCore precisa de
+  dados reais de provisionamento, não de um `Success` vazio.
+- Automação de UI por **CDP** (`tools/cdp_login.js`, `tools/cdp_watch.js`, `tools/cdp_eval.js`)
+  tornou o login reproduzível no S24 (preencher campos e clicar em “Continuar”/“Iniciar sessão”).
+- Próximo: RE do `libCoreADI` para achar o caminho do `-45061` e/ou uma fonte Anisette V1.5/AMD
+  que aceite o provisionamento sem o ADI nativo.
+
+

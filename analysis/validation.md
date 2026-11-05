@@ -1,8 +1,31 @@
 # Validação em aparelho — Apple Music DiLink patches
 
 > Dispositivo de teste: **Samsung SM-S921B (Galaxy S24), Android 16 (API 36), arm64-v8a, 1080×2340 @480dpi**.
-> Head unit alvo (**DiLink 3.0, Android 10/API 29**) ainda não testado — é o único alvo que exercita
-> o backport de API 30. Data: 2026-11-03.
+> Head unit alvo (**DiLink 3.0, Android 10/API 29**) testado em 2026-11-05 via ADB/Tailscale. Data: 2026-11-05.
+
+## Sessão 2026-11-05 — DiLink + login
+
+| Cenário | Resultado |
+|---|---|
+| DiLink 3.0 (API 29, arm64, 1920×1080@240) — 1.0.8/1.0.9 | instala, abre e navega; home renderiza em landscape, sem crash |
+| WebContainer/WebView 74 — bootstrap | **resolvido** com assets JS transpilados para Chrome 74 e servidos por `shouldInterceptRequest` |
+| S24 — e-mail + senha | aceitos; página de senha e 2FA renderizam |
+| S24 — 2FA (código 324808) | **aceito**; Apple mostra “configuração da sua Conta Apple…” |
+| Passo final (commerce auth, Anisette V1.5/AMD) | **falha**: `AMSIDMSAuthenticationCompleteAction failed: commerceAuthenticationFailed`; `AccountTable.json` continua só com a conta local |
+| `libCoreADI` em APK re-assinado | `ADIIsMachineProvisioned(-1/0/1) = -45061`; `ADIOTPRequest = -45061` |
+| `adi.pb` do iTunes Windows semeado em `files/` e `files/adi/` | **não resolve** (`-45061`); identidade ligada ao keychain do Windows |
+| Apple Music MS Store (Windows) | usa **PlayReady** (`LocalCache\PlayReady\*.msprhw.hds`), não gera `adi.pb` |
+| `libCoreADI.so` (arm64) | importa somente `libc`/`libdl` (`open`, `lstat`, `fstat`, `mkdir`, `__system_property_get`, `gettimeofday`); sem JNI/rede/SSL |
+
+Observações de instrumentação:
+- `remoteOtpResponse` (substituto do `IAnisetteProvider.request`, dex `Le7/d`) funciona até para
+  `dsid=-2`; sem ele o request sai com `Failed to set Anisette headers`.
+- Substituir `startProvisioning`/`synchronize` por `Expected.success(Unit)` faz o fluxo falhar em
+  “Ocorreu um problema ao conectar com o servidor” antes do 2FA — o AMSCore precisa de dados reais
+  de provisionamento.
+- Automação via CDP (`tools/cdp_login.js`) foi o que permitiu reproduzir o login de forma confiável,
+  já que `adb tap` errava os botões (“Continuar” → “Iniciar sessão”).
+
 
 ## 0. Versão 1.0.4 (2026-11-05)
 
