@@ -29,8 +29,16 @@ O DiLink não estava acessível nesta sessão. Foi feito o que não depende dele
 - **Workflow de GitHub Actions** (`.github/workflows/build.yml`) para gerar `.mpp` +
   `patches-list.json` sem JVM local. Precisa dos secrets `GPR_KEY` (token com `read:packages`) e
   `GPR_USER`, porque o `GITHUB_TOKEN` do repositório não lê o registry da organização MorpheApp.
-- **Nada foi compilado, instalado, commitado ou publicado** nesta sessão. O JVM local continua
-  quebrado (`Failed to mark memory page as executable`).
+  Os secrets foram configurados e o workflow rodou com sucesso
+  ([run 41949990523](https://github.com/andersonlucasg3/AppleMusic-DiLink/actions/runs/41949990523),
+  build em 1m41s): `patches-1.0.3.mpp` (708.777 B) + `patches-list.json` gerados, com
+  `Patcher-Version: 1.6.0`, `classes.dex` e `extensions/extension.mpe` contendo
+  `AccessibilityCompat`.
+- O bundle foi salvo em `Downloads/Buddy/patches-1.0.3-api29-a11y-tls.mpp` no celular; **ainda
+  não foi aplicado nem testado** (o carro não estava acessível).
+- Commits: `96bb7a4` (porta a11y/TLS + CI) e `dfdbad4` (correção do setup do Android SDK no
+  runner), na `main`. Sem tag e sem release.
+- O JVM local continua quebrado (`Failed to mark memory page as executable`).
 
 ### Pendências quando o carro voltar
 
