@@ -79,51 +79,7 @@ internal object AppIntegrityTokenFingerprint : Fingerprint(
     },
 )
 
-/**
- * TEMP debug: C4643i2.m(int) is the helper that throws the ADI status code. Log every call with
- * its stack so the failing ADI primitive can be identified.
- */
-internal object AdiStatusFingerprint : Fingerprint(
-    definingClass = "Lcom/google/android/gms/internal/measurement/i2;",
-    name = "m",
-    parameters = listOf("I"),
-    returnType = "V",
-)
-
-// TEMP debug: foothill.impl.a wraps the four ADI primitives; log which ones run.
-internal object AdiStartFingerprint : Fingerprint(
-    definingClass = "Lcom/apple/android/music/foothill/impl/a;",
-    name = "e",
-    parameters = listOf("J", "[B"),
-)
-
-internal object AdiEndFingerprint : Fingerprint(
-    definingClass = "Lcom/apple/android/music/foothill/impl/a;",
-    name = "b",
-    parameters = listOf("[B", "[B"),
-)
-
-internal object AdiOtpFingerprint : Fingerprint(
-    definingClass = "Lcom/apple/android/music/foothill/impl/a;",
-    name = "a",
-    parameters = listOf("J"),
-)
-
-internal object AdiEraseFingerprint : Fingerprint(
-    definingClass = "Lcom/apple/android/music/foothill/impl/a;",
-    name = "c",
-    parameters = listOf("J"),
-)
-
-// TEMP debug: Q8.a.<init> is where the ADI library is configured for this install.
-internal object AdiProvisionedCheckFingerprint : Fingerprint(
-    definingClass = "LQ8/a;",
-    name = "<init>",
-    parameters = listOf("Lg7/d;", "Lg7/e;"),
-    returnType = "V",
-)
-
-// TEMP debug: the store request interceptor that adds Anisette headers.
+// The store request interceptor that adds Anisette headers.
 internal object AnisetteRequestFingerprint : Fingerprint(
     definingClass = "Ltb/a;",
     name = "a",
@@ -139,12 +95,6 @@ internal object WebContainerScriptsFingerprint : Fingerprint(
     definingClass = "Lcom/apple/mediaservices/amsuikit/pageview/webcontainer/WebContainerScripts;",
     name = "<init>",
     parameters = listOf("Landroid/content/Context;", "Ljava/util/List;"),
-    returnType = "V",
-)
-
-internal object AppOnCreateFingerprint : Fingerprint(
-    definingClass = "Lcom/apple/android/music/AppleMusicApplication;",
-    name = "onCreate",
     returnType = "V",
 )
 
@@ -690,46 +640,6 @@ val appleMusicDiLinkPatch = bytecodePatch(
             """,
         )
 
-        // TEMP debug: log every ADI/Anisette status code with its call stack.
-        AdiStatusFingerprint.method.addInstructions(
-            0,
-            "invoke-static {p0}, Lapp/morphe/extension/applemusic/PlatformCompat;->logAdi(I)V",
-        )
-
-        // TEMP debug: log the ADI provisioning sequence.
-        AdiStartFingerprint.method.addInstructions(
-            0,
-            "invoke-static {p1, p2, p3}, Lapp/morphe/extension/applemusic/PlatformCompat;->logAdiStart(J[B)V",
-        )
-        AdiEndFingerprint.method.addInstructions(
-            0,
-            "invoke-static {p1, p2}, Lapp/morphe/extension/applemusic/PlatformCompat;->logAdiEnd([B[B)V",
-        )
-        AdiOtpFingerprint.method.addInstructions(
-            0,
-            "invoke-static {p1, p2}, Lapp/morphe/extension/applemusic/PlatformCompat;->logAdiOtp(J)V",
-        )
-        AdiEraseFingerprint.method.addInstructions(
-            0,
-            "invoke-static {p1, p2}, Lapp/morphe/extension/applemusic/PlatformCompat;->logAdiErase(J)V",
-        )
-        AdiProvisionedCheckFingerprint.method.apply {
-            val lastReturn = implementation!!.instructions.indexOfLast { it.opcode == Opcode.RETURN_VOID }
-            addInstructions(lastReturn, "invoke-static {}, Lapp/morphe/extension/applemusic/PlatformCompat;->logAdiProvisioned()V")
-            val loadIndex = implementation!!.instructions.indexOfFirst {
-                it.methodCalled(
-                    "Lcom/apple/android/music/foothill/javanative/ADIInterface\$Companion;",
-                    setOf("ADILoadLibraryWithPath"),
-                ) != null
-            }
-            if (loadIndex >= 0) {
-                addInstructions(
-                    loadIndex + 2,
-                    "invoke-static {}, Lapp/morphe/extension/applemusic/PlatformCompat;->reloadAdiLibrary()V",
-                )
-            }
-        }
-
         AnisetteRequestFingerprint.method.addInstructions(
             0,
             "invoke-static {p1}, Lapp/morphe/extension/applemusic/PlatformCompat;->applyAnisetteHeaders(Ljava/lang/Object;)V",
@@ -811,11 +721,6 @@ val appleMusicDiLinkPatch = bytecodePatch(
         WebContainerScriptsFingerprint.method.apply {
             addInstructions(0, "invoke-static {p1, p2}, Lapp/morphe/extension/applemusic/PlatformCompat;->fixScripts(Ljava/lang/Object;Ljava/lang/Object;)V")
         }
-
-        AppOnCreateFingerprint.method.addInstructions(
-            0,
-            "invoke-static {}, Lapp/morphe/extension/applemusic/PlatformCompat;->enableWebViewDebugging()V",
-        )
 
         WebViewInterceptFingerprint.method.apply {
             val cont = implementation!!.instructions[0]
@@ -906,6 +811,15 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     helperParameters = { emptyList() },
                     expectedCalls = 1,
                     opcode = Opcode.INVOKE_STATIC,
+                ),
+                RedirectRule(
+                    key = "Surface.setFrameRate",
+                    targetClass = "Landroid/view/Surface;",
+                    targetNames = setOf("setFrameRate"),
+                    helperClass = PLATFORM_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "F", "I") },
+                    expectedCalls = 2,
+                    opcode = Opcode.INVOKE_VIRTUAL,
                 ),
                 RedirectRule(
                     key = "WindowInsetsController.setSystemBarsAppearance",

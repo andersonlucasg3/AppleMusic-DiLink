@@ -429,4 +429,21 @@ Progresso concreto (tudo na fonte/mpp):
 - Próximo: RE do `libCoreADI` para achar o caminho do `-45061` e/ou uma fonte Anisette V1.5/AMD
   que aceite o provisionamento sem o ADI nativo.
 
+## Sessão 2026-11-05 (resolvido) — login + playback no DiLink
+
+- A pesquisa pública corrigiu o diagnóstico: `-45061` é `kADINotProvisioned` (estado), não assinatura.
+  O `INativeAnisetteProvider` foi substituído por OTP local, sem `libCoreADI`.
+- Identidade Android provisionada com `apple-auth` (MIT), driver em `.pipeline/apple-auth`:
+  GrandSlam (`device-android-1`, secondary 384 B, profile −2) e Store (`device-android-store`,
+  secondary 272 B, profile −1). Port Java do OTP em `extensions/.../adi/{AmdOtp,StoreOtp,Tables,StoreTables}.java`,
+  perfis em `AdiProfile.java`/`StoreProfile.java` (gerados por `tools/gen_adi_profiles.py`).
+- Provider devolve **OTP cru**: GrandSlam com envelope de 28 B (v5 + trailer 4) e Store com AMD de
+  24 B (v4, sem trailer); machine ID de 60 B.
+- `Surface.setFrameRate` (API 30, ExoPlayer) redirecionado — era o crash no playback após o login.
+- Resultado: conta ativa no S24 e no carro (`AccountTable.json`, DSID 1123805986) e **player
+  tocando** no DiLink; UI de letras, fila, busca e Ajustes navegáveis.
+- Pendências: layout em API 29 (faixa preta nas letras, cards cortados à direita, gaps no Ajustes).
+- Release 1.1.0: `.mpp` (entrada XAPK; APKM rejeitado pelo `apkFileType = XAPK`) e APK merged
+  `AppleMusic-1.1.0-DiLink.apk` para instalação manual.
+
 

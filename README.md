@@ -6,12 +6,11 @@ Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.
 Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 28/29 e rodar sem
 GMS/Play Integrity.
 
-> **Estado atual (2026-11-05):** o app **instala, abre e navega no DiLink** (API 29, landscape),
-> e o fluxo de login chega ao **2FA da Apple e o aceita** no S24. Os assets JS da Apple são
-> transpilados para Chrome 74 no build e servidos pelo próprio APK; o Anisette é suprido por um
-> servidor remoto v3. **Bloqueio atual:** o passo final `AMSIDMSAuthenticationCompleteAction`
-> (*commerce auth*, Anisette **V1.5/AMD**) falha com `commerceAuthenticationFailed`; o ADI nativo
-> retorna `-45061` em APK re-assinado. Root não é uma opção no carro.
+> **Estado atual (1.1.0):** o app **instala, abre, loga e reproduz no DiLink** (API 29, landscape).
+> O login passa por e-mail, senha, 2FA e pelo `AMSIDMSAuthenticationCompleteAction`; o player toca
+> normalmente. Os assets JS da Apple são transpilados para Chrome 74 no build e servidos pelo APK;
+> o Anisette/ADI nativo é substituído por OTP local (GrandSlam V3 e Store AMD V1.5) com uma
+> identidade Android provisionada via `apple-auth` embutida no bundle.
 >
 > Validado: build, aplicação no APK, bytecode, carregamento no patcher do Manager, fluxo completo
 > no Morphe mobile, startup sem GMS e runtime no DiLink.
@@ -35,17 +34,15 @@ resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validat
   `Objects.requireNonNullElse*`, `List.of`, `WifiInfo.getWifiStandard`, acessibilidade) e agora também
   `IBinder.getSuggestedMaxIpcSizeBytes()` (API 30, usado por `p507z3.C7059k`). Para API 28 ainda há
   `m1.<clinit>` (`FontStyle`), fora do escopo.
-- **Login — bloqueio atual:** o WebView 74 foi resolvido (assets JS transpilados e servidos pelo APK),
-  e a Apple **aceita e-mail, senha e o código 2FA**. O passo final `AMSIDMSAuthenticationCompleteAction`
-  (*commerce auth*, Anisette **V1.5/AMD**) falha com `commerceAuthenticationFailed` e apaga o
-  provisionamento. O `libCoreADI` retorna `-45061` em APK re-assinado; ele importa só `libc` (sem JNI,
-  rede ou SSL), então o erro é de estado local, não uma checagem de assinatura via `PackageManager`.
-- O `adi.pb` do iTunes Windows **não** funciona no Android (identidade ligada ao keychain do Windows),
-  e o Apple Music da MS Store usa **PlayReady** (não gera `adi.pb`).
-- **Root não é uma opção** no DiLink; o caminho restante é patch/provider (V1.5/AMD) ou RE do
-  `libCoreADI`.
-- O APK final é um **APK único merged** (a CLI funde os splits) e é assinado com `CN=Morphe`:
-  é preciso desinstalar o Apple Music oficial antes de instalar o patcheado.
+- **Login resolvido:** WebView 74 (assets JS transpilados), 2FA e commerce auth (OTP local
+  GrandSlam/Store) funcionam. O `libCoreADI` nativo não é mais chamado.
+- **UI (API 29) — pendências de layout:** faixa preta na tela de letras, cards cortados à direita
+  nos carrosséis e espaçamentos grandes no Ajustes. São diferenças de layout/insets, **não** de
+  accent color (o app não usa dynamic color no carro).
+- **Entrada para patch: XAPK.** O bundle declara `apkFileType = XAPK`; arquivos `.apkm` são
+  rejeitados pelo Manager. Use o XAPK do Apple Music 7.0.0 (APKPure).
+- A identidade ADI embutida é sintética (sem conta); o APK final é merged e assinado com
+  `CN=Morphe`, então é preciso desinstalar o Apple Music oficial antes de instalar o patcheado.
 
 ## Estrutura
 

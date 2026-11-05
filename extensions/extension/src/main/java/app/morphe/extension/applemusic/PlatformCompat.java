@@ -6,6 +6,7 @@ import android.graphics.Outline;
 import android.graphics.Path;
 import android.os.Build;
 import android.os.ext.SdkExtensions;
+import android.view.Surface;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsetsAnimation;
@@ -29,72 +30,6 @@ public final class PlatformCompat {
     private PlatformCompat() {
     }
 
-    /** TEMP debug: log every ADI/Anisette status code with its call stack. */
-    public static void logAdi(int code) {
-        android.util.Log.e("AdiDebug", "ADI status=" + code, new Exception("ADI call site"));
-    }
-
-    public static void logAdiStart(long dsid, byte[] spim) {
-        android.util.Log.e("AdiDebug", "ADI start dsid=" + dsid + " spim=" + (spim == null ? -1 : spim.length));
-    }
-
-    public static void logAdiEnd(byte[] ptm, byte[] tk) {
-        android.util.Log.e("AdiDebug", "ADI end ptm=" + (ptm == null ? -1 : ptm.length) + " tk=" + (tk == null ? -1 : tk.length));
-    }
-
-    public static void logAdiOtp(long dsid) {
-        android.util.Log.e("AdiDebug", "ADI otp dsid=" + dsid);
-    }
-
-    public static void logAdiErase(long dsid) {
-        android.util.Log.e("AdiDebug", "ADI erase dsid=" + dsid);
-    }
-
-    public static void logAdiProvisioned() {
-        try {
-            Object companion = adiCompanion();
-            java.lang.reflect.Method method =
-                    companion.getClass().getMethod("ADIIsMachineProvisioned", long.class);
-            Object result = method.invoke(companion, -1L);
-            android.util.Log.e("AdiDebug", "ADIIsMachineProvisioned(-1)=" + result);
-            android.util.Log.e("AdiDebug", "ADIIsMachineProvisioned(0)=" + method.invoke(companion, 0L));
-            android.util.Log.e("AdiDebug", "ADIIsMachineProvisioned(1)=" + method.invoke(companion, 1L));
-        } catch (Throwable t) {
-            android.util.Log.e("AdiDebug", "ADIIsMachineProvisioned failed", t);
-        }
-    }
-
-    private static Object adiCompanion() throws Exception {
-        Class<?> clazz = Class.forName("com.apple.android.music.foothill.javanative.ADIInterface");
-        java.lang.reflect.Field field = clazz.getDeclaredField("a");
-        field.setAccessible(true);
-        return field.get(null);
-    }
-
-    /** Reload the ADI library pointing at the APK native library dir instead of filesDir. */
-    public static void reloadAdiLibrary() {
-        try {
-            Object companion = adiCompanion();
-            java.lang.reflect.Method method =
-                    companion.getClass().getMethod("ADILoadLibraryWithPath", String.class);
-            Object result = method.invoke(companion, nativeLibraryDir());
-            android.util.Log.e("AdiDebug", "ADILoadLibraryWithPath(nativeLibraryDir)=" + result);
-        } catch (Throwable t) {
-            android.util.Log.e("AdiDebug", "ADILoadLibraryWithPath reload failed", t);
-        }
-    }
-
-    public static String nativeLibraryDir() {
-        try {
-            Class<?> activityThread = Class.forName("android.app.ActivityThread");
-            Object application = activityThread.getMethod("currentApplication").invoke(null);
-            android.content.Context context = (android.content.Context) application;
-            return context.getApplicationInfo().nativeLibraryDir;
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
     private static volatile String[] cachedAnisette;
     private static volatile long cachedAnisetteAt;
 
@@ -110,9 +45,8 @@ public final class PlatformCompat {
             for (int i = 0; i < headers.length; i += 2) {
                 set.invoke(map, headers[i], headers[i + 1]);
             }
-            android.util.Log.e("AdiDebug", "applied anisette headers=" + (headers.length / 2));
         } catch (Throwable t) {
-            android.util.Log.e("AdiDebug", "applyAnisetteHeaders failed", t);
+            android.util.Log.e("AppleMusicDiLink", "applyAnisetteHeaders failed", t);
         }
     }
 
@@ -148,7 +82,7 @@ public final class PlatformCompat {
             cachedAnisetteAt = now;
             return result;
         } catch (Throwable t) {
-            android.util.Log.e("AdiDebug", "anisette fetch failed", t);
+            android.util.Log.e("AppleMusicDiLink", "anisette fetch failed", t);
             return null;
         } finally {
             if (connection != null) {
@@ -157,41 +91,8 @@ public final class PlatformCompat {
         }
     }
 
-    /** TEMP debug: list the user scripts the WebContainer will inject into the page. */
-    public static void logScripts(Object context, Object scripts) {
-        try {
-            android.util.Log.e(
-                    "AmsDebug",
-                    "scripts arg=" + (scripts == null ? "null" : scripts.getClass().getName())
-                            + " ctx=" + (context == null ? "null" : context.getClass().getName()));
-            if (scripts instanceof Iterable) {
-                int index = 0;
-                for (Object item : (Iterable<?>) scripts) {
-                    String text = String.valueOf(item);
-                    android.util.Log.e(
-                            "AmsDebug",
-                            "script[" + index + "] len=" + text.length()
-                                    + " head=" + text.substring(0, Math.min(120, text.length())));
-                    index++;
-                }
-                android.util.Log.e("AmsDebug", "scripts count=" + index);
-            } else if (scripts instanceof Object[]) {
-                Object[] array = (Object[]) scripts;
-                for (int i = 0; i < array.length; i++) {
-                    String text = String.valueOf(array[i]);
-                    android.util.Log.e(
-                            "AmsDebug",
-                            "script[" + i + "] len=" + text.length()
-                                    + " head=" + text.substring(0, Math.min(120, text.length())));
-                }
-            }
-        } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "logScripts failed", t);
-        }
-    }
-
     /**
-     * TEMP: the native AMS bridge script uses ES2020 optional chaining/nullish coalescing, which
+     * The native AMS bridge script uses ES2020 optional chaining/nullish coalescing, which
      * the DiLink WebView (Chromium 74) cannot parse, so window.AMS is never defined. Rewrite the
      * three affected snippets to ES5/ES2018 before the scripts are injected.
      */
@@ -199,7 +100,6 @@ public final class PlatformCompat {
     public static void fixScripts(Object context, Object scripts) {
         try {
             if (!(scripts instanceof java.util.List)) {
-                logScripts(context, scripts);
                 return;
             }
             java.util.List list = (java.util.List) scripts;
@@ -216,23 +116,10 @@ public final class PlatformCompat {
                         .replace("...o.userInfo??{}", "...(o.userInfo!=null?o.userInfo:{})");
                 if (!fixed.equals(original)) {
                     list.set(i, fixed);
-                    android.util.Log.e(
-                            "AmsDebug",
-                            "transpiled script[" + i + "] " + original.length() + "->" + fixed.length());
                 }
             }
         } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "fixScripts failed", t);
-        }
-    }
-
-    /** TEMP debug: enable WebView DevTools so the console exception can be inspected over CDP. */
-    public static void enableWebViewDebugging() {
-        try {
-            android.webkit.WebView.setWebContentsDebuggingEnabled(true);
-            android.util.Log.e("AmsDebug", "webview debugging enabled");
-        } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "enableWebViewDebugging failed", t);
+            android.util.Log.e("AppleMusicDiLink", "fixScripts failed", t);
         }
     }
 
@@ -258,7 +145,7 @@ public final class PlatformCompat {
             org.json.JSONObject json = new org.json.JSONObject(out.toString("UTF-8"));
             return json;
         } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "anisetteJson failed", t);
+            android.util.Log.e("AppleMusicDiLink", "anisetteJson failed", t);
             return null;
         } finally {
             if (connection != null) {
@@ -286,7 +173,7 @@ public final class PlatformCompat {
             }
             return expectedSuccess(unit);
         } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "expectedUnit failed", t);
+            android.util.Log.e("AppleMusicDiLink", "expectedUnit failed", t);
             return null;
         }
     }
@@ -326,10 +213,10 @@ public final class PlatformCompat {
                     return expectedSuccess(constructor.newInstance(arguments));
                 }
             }
-            android.util.Log.e("AmsDebug", "no usable constructor for " + className);
+            android.util.Log.e("AppleMusicDiLink", "no usable constructor for " + className);
             return null;
         } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "expectedInstance failed " + className, t);
+            android.util.Log.e("AppleMusicDiLink", "expectedInstance failed " + className, t);
             return null;
         }
     }
@@ -343,12 +230,34 @@ public final class PlatformCompat {
         return expectedInstance("com.apple.mediaservices.amskit.fairplay.INativeAnisetteProvider$SyncResponse");
     }
 
-    /** Replacement for the app's IAnisetteProvider.request: the local ADI provisioning fails with
-     * -45061 on a re-signed build, so return the remote Anisette v3 values instead. AMSCore
-     * base64-encodes mid/otp into its X-Apple-AMD / X-Apple-I-MD headers.
-     */
+    /** Replacement for the app's IAnisetteProvider.request. */
     public static Object remoteOtpResponse(long dsid) {
         try {
+            if (dsid == -2L) {
+                int counter = (int) (System.currentTimeMillis() / 1000L / 30L);
+                byte[] otp = app.morphe.extension.applemusic.adi.AmdOtp.computeOtp(
+                        app.morphe.extension.applemusic.adi.AdiProfile.SECONDARY,
+                        app.morphe.extension.applemusic.adi.AdiProfile.ENCRYPTED_SEED,
+                        counter);
+                byte[] mid = app.morphe.extension.applemusic.adi.AdiProfile.MACHINE_ID;
+                // GrandSlam X-Apple-I-MD envelope: u32 ver=5, u32 len=16, 16 B OTP, u32 platform=4.
+                byte[] envelope = new byte[28];
+                envelope[3] = 5;
+                envelope[7] = 16;
+                System.arraycopy(otp, 0, envelope, 8, 16);
+                envelope[27] = 4;
+                return expectedOtpResponse(mid, envelope);
+            }
+            if (dsid == -1L) {
+                int counter = (int) (System.currentTimeMillis() / 1000L / 30L);
+                byte[] otp = app.morphe.extension.applemusic.adi.StoreOtp.computeOtp(
+                        app.morphe.extension.applemusic.adi.StoreProfile.SECONDARY,
+                        app.morphe.extension.applemusic.adi.StoreProfile.ENCRYPTED_SEED,
+                        counter);
+                byte[] amd = app.morphe.extension.applemusic.adi.StoreOtp.amd(otp);
+                byte[] mid = app.morphe.extension.applemusic.adi.StoreProfile.MACHINE_ID;
+                return expectedOtpResponse(mid, amd);
+            }
             org.json.JSONObject json = anisetteJson();
             if (json == null) {
                 return null;
@@ -356,25 +265,27 @@ public final class PlatformCompat {
             byte[] md = android.util.Base64.decode(json.getString("X-Apple-I-MD"), android.util.Base64.DEFAULT);
             byte[] mdm = android.util.Base64.decode(json.getString("X-Apple-I-MD-M"), android.util.Base64.DEFAULT);
             // V1.5 (AMD/AMD-M): try otp=MD, mid=MD-M swapped relative to the v3 mapping.
-            byte[] mid = md;
             byte[] otp = mdm;
-            Class<?> otpClass = Class.forName(
-                    "com.apple.mediaservices.amskit.fairplay.INativeAnisetteProvider$OTPResponse");
-            java.lang.reflect.Constructor<?> constructor =
-                    otpClass.getDeclaredConstructor(byte[].class, byte[].class);
-            constructor.setAccessible(true);
-            Object otpResponse = constructor.newInstance(mid, otp);
-            Class<?> successClass = Class.forName("com.apple.mediaservices.amskit.bindings.Expected$Success");
-            java.lang.reflect.Constructor<?> successConstructor =
-                    successClass.getDeclaredConstructor(Object.class);
-            successConstructor.setAccessible(true);
-            Object result = successConstructor.newInstance(otpResponse);
-            android.util.Log.e("AmsDebug", "remoteOtpResponse ok dsid=" + dsid);
-            return result;
+            byte[] mid = md;
+            return expectedOtpResponse(mid, otp);
         } catch (Throwable t) {
-            android.util.Log.e("AmsDebug", "remoteOtpResponse failed", t);
+            android.util.Log.e("AppleMusicDiLink", "remoteOtpResponse failed", t);
             return null;
         }
+    }
+
+    private static Object expectedOtpResponse(byte[] mid, byte[] otp) throws Exception {
+        Class<?> otpClass = Class.forName(
+                "com.apple.mediaservices.amskit.fairplay.INativeAnisetteProvider$OTPResponse");
+        java.lang.reflect.Constructor<?> constructor =
+                otpClass.getDeclaredConstructor(byte[].class, byte[].class);
+        constructor.setAccessible(true);
+        Object otpResponse = constructor.newInstance(mid, otp);
+        Class<?> successClass = Class.forName("com.apple.mediaservices.amskit.bindings.Expected$Success");
+        java.lang.reflect.Constructor<?> successConstructor =
+                successClass.getDeclaredConstructor(Object.class);
+        successConstructor.setAccessible(true);
+        return successConstructor.newInstance(otpResponse);
     }
 
     public static android.webkit.WebResourceResponse interceptWebResource(Object request) {
@@ -393,7 +304,6 @@ public final class PlatformCompat {
             headers.put("Access-Control-Allow-Origin", "*");
             headers.put("Cache-Control", "no-cache");
             response.setResponseHeaders(headers);
-            android.util.Log.e("AmsDebug", "served transpiled asset " + url);
             return response;
         } catch (Throwable t) {
             return null;
@@ -437,9 +347,8 @@ public final class PlatformCompat {
                     String key = keys.next();
                     map.put(key, object.getString(key));
                 }
-                android.util.Log.e("AmsDebug", "loaded transpiled assets=" + map.size());
             } catch (Throwable t) {
-                android.util.Log.e("AmsDebug", "dlAssets failed", t);
+                android.util.Log.e("AppleMusicDiLink", "dlAssets failed", t);
             }
             dlAssets = map;
             return map;
@@ -449,6 +358,13 @@ public final class PlatformCompat {
     /** API 30 static used by p507z3.C7059k.<clinit>; on API 29 return the platform default. */
     public static int getSuggestedMaxIpcSizeBytes() {
         return 1024 * 1024;
+    }
+
+    /** API 30 Surface.setFrameRate(float, int); no-op on API 29 (ExoPlayer calls it). */
+    public static void setFrameRate(Object surface, float frameRate, int compatibility) {
+        if (Build.VERSION.SDK_INT >= 30 && surface instanceof Surface) {
+            Api30.setFrameRate((Surface) surface, frameRate, compatibility);
+        }
     }
 
     public static void setWindowInsetsAnimationCallback(Object view, Object callback) {
@@ -544,6 +460,10 @@ public final class PlatformCompat {
 
         static void setDecorFitsSystemWindows(Object window, boolean fitSystemWindows) {
             ((Window) window).setDecorFitsSystemWindows(fitSystemWindows);
+        }
+
+        static void setFrameRate(Surface surface, float frameRate, int compatibility) {
+            surface.setFrameRate(frameRate, compatibility);
         }
 
         static int getExtensionVersion(int extension) {
