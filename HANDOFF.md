@@ -372,3 +372,22 @@ Push, tag e release são ações externas: chamar `confirm` com a ação exata a
 - O conteúdo em branco de Movimento pode ser um problema independente de layout/preferência,
   não apenas de acessibilidade.
 - Não voltar a tentar `CertInstaller` ou qualquer instalação de certificado no DiLink.
+
+## Sessão 2026-11-05 (continuação) — 1.0.9 no carro
+
+- ADB do carro via Tailscale (`100.74.124.38:5555`) funcionou.
+- **O app abre e navega no DiLink** (home renderiza em landscape, API 29).
+- Correções de startup na fonte (mpp, versão 1.0.9):
+  - `x2/V.<init>(WindowInsets)`: a injeção anterior caía em código inalcançável; agora é
+    injetada após `Object.<init>` e escolhe `V$e` (API < 30), `V$i` (30–33) e o caminho
+    original `V$j` (≥ 34).
+  - `androidx.mediarouter.app.c.<init>`: forçar `isInEditMode()=true` só em API < 30; em
+    API ≥ 30 isso deixava `mRouter` null e o `onAttachedToWindow` dava NPE.
+- **Login bloqueado (não é o patch)**: `anisetteRequest(-1) failed` +
+  `R8.b code=-45061` no `foothill`/ADI nativo.
+  - Reproduzido no carro (API 29) e no S24 (API 36), com e sem o bypass de integrity.
+  - Controle: APK original **sem patch, apenas re-assinado**, falha igual no S24; o app
+    original instalado pela Play Store loga normalmente.
+  - Conclusão: o re-sign quebra o atestado (Play Integrity/FairPlay ADI). Login em APK
+    patcheado provavelmente exige bypass de atestação server-side — não resolvido.
+

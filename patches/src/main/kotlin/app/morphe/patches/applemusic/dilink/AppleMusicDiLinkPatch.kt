@@ -516,7 +516,8 @@ val appleMusicDiLinkPatch = bytecodePatch(
         }
 
         // getAppIntegrityToken() has 6 registers and 2 parameters, so v0 is free.
-        // Its callers already handle a null token (p095e7/i.java:66-68).
+        // Its callers already handle a null token (p095e7/i.java:66-68). The Anisette/FairPlay
+        // login path fails with the same code with or without this bypass, so it is unrelated.
         AppIntegrityTokenFingerprint.method.addInstructions(
             0,
             """
@@ -1054,20 +1055,25 @@ val appleMusicDiLinkPatch = bytecodePatch(
             )
         }
 
-        // androidx.mediarouter.app.c.<init>: force the View.isInEditMode() result to true, so
-        // mRouter is left null and nothing uses the API 30 MediaRouter routes. Mirrors fixed22.
+        // androidx.mediarouter.app.c.<init>: on API < 30 the MediaRouter (API 30 routes) must stay
+        // null, so force the View.isInEditMode() result to true there. On API 30+ the real result
+        // is kept; forcing it leaves mRouter null and onAttachedToWindow() NPEs.
         MediaRouterViewInitFingerprint.method.apply {
             val index = implementation?.instructions?.indexOfFirst {
                 it.methodCalled("Landroid/view/View;", setOf("isInEditMode")) != null
             } ?: -1
             check(index >= 0) { "mediarouter c.<init> has no isInEditMode call" }
+            // Inject after the move-result (index + 2); v5/v6 are dead at this point and the
+            // result lives in v7.
             addInstructionsWithLabels(
-                index,
+                index + 2,
                 """
+                    sget v5, $SDK_INT
+                    const/16 v6, 0x1e
+                    if-ge v5, v6, :orig
                     const/4 v7, 0x1
-                    goto :after
                 """,
-                ExternalLabel("after", getInstruction(index + 2)),
+                ExternalLabel("orig", getInstruction(index + 2)),
             )
         }
 
@@ -1091,28 +1097,31 @@ val appleMusicDiLinkPatch = bytecodePatch(
             """,
         )
 
-        // x2/V.<init>(WindowInsets): for API < 34 the original picks V$i (Impl30). On API 29 it
-        // must use V$e (Impl20); 30-33 can keep V$i. v0/v1 are dead after the SDK check at the
-        // original entry; v2 is this and v3 the WindowInsets.
+        // x2/V.<init>(WindowInsets): for API < 34 the original picks V$i (Impl30), which calls
+        // WindowInsets.Type.captionBar() and other API 30 methods. The choice is handled right
+        // after Object.<init> (index 1): API < 30 uses V$e (Impl20), 30-33 keeps V$i, 34+ runs
+        // the original V$j path. Injecting at the V$i instruction does not work: the original
+        // "SDK < 34" branch jumps straight to it and skips the injected block.
         WindowInsetsCompatInitFingerprint.method.apply {
-            val index = implementation?.instructions?.indexOfFirst {
-                it.isNewInstanceOf("Lx2/V\$i;")
-            } ?: -1
-            check(index >= 0) { "x2/V.<init> has no V\$i branch" }
             addInstructionsWithLabels(
-                index,
+                1,
                 """
                     sget v0, $SDK_INT
+                    const/16 v1, 0x22
+                    if-ge v0, v1, :orig
                     const/16 v1, 0x1e
-                    if-lt v0, v1, :legacy
-                    goto :orig
-                    :legacy
+                    if-ge v0, v1, :impl30
                     new-instance v0, Lx2/V${'$'}e;
                     invoke-direct {v0, v2, v3}, Lx2/V${'$'}e;-><init>(Lx2/V; Landroid/view/WindowInsets;)V
                     goto :store
+                    :impl30
+                    new-instance v0, Lx2/V${'$'}i;
+                    invoke-direct {v0, v2, v3}, Lx2/V${'$'}i;-><init>(Lx2/V; Landroid/view/WindowInsets;)V
+                    :store
+                    iput-object v0, v2, Lx2/V;->a:Lx2/V${'$'}k;
+                    return-void
                 """,
-                ExternalLabel("orig", getInstruction(index)),
-                ExternalLabel("store", getInstruction(index + 2)),
+                ExternalLabel("orig", getInstruction(1)),
             )
         }
 
