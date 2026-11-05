@@ -411,3 +411,13 @@ compileSdkVersion='36'
 | `.pipeline/patched/classes5.dump` | dexdump do dex alterado (contém `x2/v$b` e as guardas) |
 | `.pipeline/patched/classes3.dump` | dexdump usado no `try/catch` de `utils.g$a.onClick` |
 | `.pipeline/api-scan/dex_refs_patched.jsonl` | 1.237 achados `since>28` do APK patcheado (regerado após este patch) |
+
+---
+
+## 11. Novos pontos encontrados em 2026-11-05 (login)
+
+| Ponto | Onde | Correção |
+|---|---|---|
+| `IBinder.getSuggestedMaxIpcSizeBytes()` (API 30, estático) | `p507z3.C7059k.<clinit>` (usado por `FPDILicenseRequest`) | redirecionado para `PlatformCompat.getSuggestedMaxIpcSizeBytes()` (1 MiB) |
+| `libCoreADI` `-45061` | provisioning Anisette/ADI nativo | **não é API 30**: a lib importa só `libc`/`libdl`; o erro é estado local. Continua em aberto |
+| JS ES2020 da Apple | `appleid.cdn-apple.com` / chunks `appleauth` | assets transpilados no build e servidos por `shouldInterceptRequest` (ver `DilinkWebAssetsPatch`) |
