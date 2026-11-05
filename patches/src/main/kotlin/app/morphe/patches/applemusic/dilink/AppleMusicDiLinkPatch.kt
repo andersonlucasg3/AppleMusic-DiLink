@@ -23,6 +23,7 @@ private const val OBJECTS_COMPAT = "${EXTENSION_PACKAGE}applemusic/ObjectsCompat
 private const val LIST_COMPAT = "${EXTENSION_PACKAGE}applemusic/ListCompat;"
 private const val INSETS_COMPAT = "${EXTENSION_PACKAGE}applemusic/WindowInsetsControllerCompat;"
 private const val WIFI_COMPAT = "${EXTENSION_PACKAGE}applemusic/WifiInfoCompat;"
+private const val ACCESSIBILITY_COMPAT = "${EXTENSION_PACKAGE}applemusic/AccessibilityCompat;"
 
 /**
  * x2/W and x2/W$a are androidx.core.view.WindowInsetsControllerCompat and its Impl30 after R8.
@@ -182,6 +183,32 @@ internal object SoftwareKeyboardShowFingerprint : Fingerprint(
     returnType = "V",
 )
 
+/**
+ * x2/E$j.c(View) is ViewCompat.getWindowInsetsController(View): it calls
+ * View.getWindowInsetsController() (API 30) and wraps the result in x2/W.
+ * The DiLink target has no such method, so it returns null below API 30 (the same
+ * contract androidx's own compat class has).
+ */
+internal object ViewCompatInsetsControllerFingerprint : Fingerprint(
+    definingClass = "Lx2/E\$j;",
+    name = "c",
+    parameters = listOf("Landroid/view/View;"),
+    returnType = "Lx2/W;",
+)
+
+/**
+ * androidx.preference/a$a.a(Window) shows the IME of a preference dialog's window through
+ * View.getWindowInsetsController(), WindowInsets.Type.ime() and WindowInsetsController.show(),
+ * all API 30, without an SDK_INT guard (PreferenceFragmentCompat built with minSdk 30).
+ * On API < 30 the whole method is a no-op.
+ */
+internal object PreferenceInsetsKeyboardFingerprint : Fingerprint(
+    definingClass = "Landroidx/preference/a\$a;",
+    name = "a",
+    parameters = listOf("Landroid/view/Window;"),
+    returnType = "V",
+)
+
 /** One "redirect these platform calls to an extension helper" rule. */
 private class RedirectRule(
     val key: String,
@@ -190,11 +217,20 @@ private class RedirectRule(
     val helperClass: String,
     val helperParameters: (MethodReference) -> List<String>,
     val expectedCalls: Int,
+    /** Restricts the rule to one invoke-* opcode (null matches any). */
+    val opcode: Opcode? = null,
+    /** Helper method name when it must differ from the platform method name. */
+    val helperName: String? = null,
 )
 
 private fun Instruction.methodCalled(definingClass: String, names: Set<String>): MethodReference? {
     val reference = (this as? ReferenceInstruction)?.reference as? MethodReference ?: return null
     return reference.takeIf { it.definingClass == definingClass && it.name in names }
+}
+
+private fun Instruction.methodCalled(rule: RedirectRule): MethodReference? {
+    if (rule.opcode != null && opcode != rule.opcode) return null
+    return methodCalled(rule.targetClass, rule.targetNames)
 }
 
 /**
@@ -211,7 +247,7 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
         if (!classDef.type.startsWith(EXTENSION_PACKAGE) &&
             classDef.methods.any { method ->
                 method.implementation?.instructions?.any { instruction ->
-                    rules.any { rule -> instruction.methodCalled(rule.targetClass, rule.targetNames) != null }
+                    rules.any { rule -> instruction.methodCalled(rule) != null }
                 } == true
             }
         ) {
@@ -224,7 +260,7 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
             val implementation = method.implementation ?: continue
             val rewrites = implementation.instructions.mapIndexedNotNull { index, instruction ->
                 rules.firstOrNull { rule ->
-                    instruction.methodCalled(rule.targetClass, rule.targetNames) != null
+                    instruction.methodCalled(rule) != null
                 }?.let { index to it }
             }
             for ((index, rule) in rewrites) {
@@ -242,7 +278,7 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
                         instruction.registerG,
                         ImmutableMethodReference(
                             rule.helperClass,
-                            reference.name,
+                            rule.helperName ?: reference.name,
                             rule.helperParameters(reference),
                             reference.returnType,
                         ),
@@ -264,11 +300,11 @@ private fun BytecodePatchContext.redirectCalls(rules: List<RedirectRule>): Map<S
 val appleMusicDiLinkPatch = bytecodePatch(
     name = "Apple Music DiLink support",
     description = "Unlocks landscape rotation, lowers the API floor to Android 10 (API 29), " +
-        "backports the API 30 java/androidx calls and bypasses Play Integrity.",
+        "backports the API 30 java/androidx/accessibility calls and bypasses Play Integrity.",
     default = true,
 ) {
     compatibleWith(APPLE_MUSIC_DILINK)
-    dependsOn(dilinkManifestPatch)
+    dependsOn(dilinkManifestPatch, dilinkTlsPatch)
     extendWith("extensions/extension.mpe")
 
     execute {
@@ -395,6 +431,66 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     targetNames = setOf("setSystemBarsBehavior"),
                     helperClass = INSETS_COMPAT,
                     helperParameters = { listOf("Ljava/lang/Object;", "I") },
+                    expectedCalls = 2,
+                ),
+                // Accessibility state descriptions were added in API 30. The app was built with
+                // minSdk 30, so R8 kept these calls unguarded; the first one executed (from the
+                // accessibility bridge during uiautomator dump or a car accessibility service)
+                // throws NoSuchMethodError. Direct calls go to the helper, which keeps the API 30
+                // behavior and returns null/does nothing on API 29. Call sites in 7.0.0:
+                //   View.getStateDescription:       x2/E$j.b
+                //   View.setStateDescription:       x2/E$j.d
+                //   Node.getStateDescription:       y2/j.toString
+                //   Node.setStateDescription:       x2/a$a.onInitializeAccessibilityNodeInfo and
+                //                                   androidx.compose.ui.platform.b$c.b
+                //   View.setStateDescription super: Lif/a (MaterialCheckBox), handled below.
+                RedirectRule(
+                    key = "View.getStateDescription",
+                    targetClass = "Landroid/view/View;",
+                    targetNames = setOf("getStateDescription"),
+                    helperClass = ACCESSIBILITY_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;") },
+                    expectedCalls = 1,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                RedirectRule(
+                    key = "View.setStateDescription",
+                    targetClass = "Landroid/view/View;",
+                    targetNames = setOf("setStateDescription"),
+                    helperClass = ACCESSIBILITY_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "Ljava/lang/CharSequence;") },
+                    expectedCalls = 1,
+                    opcode = Opcode.INVOKE_VIRTUAL,
+                ),
+                // MaterialCheckBox (Lif/a, classes4.dex) overrides setStateDescription and calls
+                // super through invoke-super three times (setCheckedState + setStateDescription).
+                // Redirecting those to the virtual helper would dispatch back into the same
+                // override and recurse forever, so they get a no-op helper: the subclass keeps its
+                // own field, only the platform a11y value is not updated on API 30+.
+                RedirectRule(
+                    key = "View.setStateDescription (invoke-super)",
+                    targetClass = "Landroid/view/View;",
+                    targetNames = setOf("setStateDescription"),
+                    helperClass = ACCESSIBILITY_COMPAT,
+                    helperName = "setStateDescriptionSuper",
+                    helperParameters = { listOf("Ljava/lang/Object;", "Ljava/lang/CharSequence;") },
+                    expectedCalls = 3,
+                    opcode = Opcode.INVOKE_SUPER,
+                ),
+                RedirectRule(
+                    key = "AccessibilityNodeInfo.getStateDescription",
+                    targetClass = "Landroid/view/accessibility/AccessibilityNodeInfo;",
+                    targetNames = setOf("getStateDescription"),
+                    helperClass = ACCESSIBILITY_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;") },
+                    expectedCalls = 1,
+                ),
+                RedirectRule(
+                    key = "AccessibilityNodeInfo.setStateDescription",
+                    targetClass = "Landroid/view/accessibility/AccessibilityNodeInfo;",
+                    targetNames = setOf("setStateDescription"),
+                    helperClass = ACCESSIBILITY_COMPAT,
+                    helperParameters = { listOf("Ljava/lang/Object;", "Ljava/lang/CharSequence;") },
                     expectedCalls = 2,
                 ),
             ),
@@ -591,6 +687,45 @@ val appleMusicDiLinkPatch = bytecodePatch(
                     ExternalLabel("supported", getInstruction(0)),
                 )
             }
+        }
+
+        // x2/E$j.c: ViewCompat.getWindowInsetsController(View) calls the API 30
+        // View.getWindowInsetsController(). 2 registers, ins 1 -> v0 is free, v1 is the View.
+        // Below API 30 it returns null, like androidx does when the platform has no controller.
+        ViewCompatInsetsControllerFingerprint.method.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    sget v0, $SDK_INT
+                    invoke-static {v0}, $INSETS_COMPAT->isAtLeast30(I)Z
+                    move-result v0
+                    if-nez v0, :legacy
+                    goto :supported
+                    :legacy
+                    const/4 v0, 0x0
+                    return-object v0
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+            )
+        }
+
+        // androidx.preference/a$a.a(Window): the whole body is API 30 (getWindowInsetsController,
+        // WindowInsets.Type.ime and WindowInsetsController.show). 2 registers -> v0 is free,
+        // v1 is the Window; below API 30 the dialog keyboard is simply not shown automatically.
+        PreferenceInsetsKeyboardFingerprint.method.apply {
+            addInstructionsWithLabels(
+                0,
+                """
+                    sget v0, $SDK_INT
+                    invoke-static {v0}, $INSETS_COMPAT->isAtLeast30(I)Z
+                    move-result v0
+                    if-nez v0, :legacy
+                    goto :supported
+                    :legacy
+                    return-void
+                """,
+                ExternalLabel("supported", getInstruction(0)),
+            )
         }
     }
 }

@@ -6,31 +6,36 @@ Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.
 Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 28/29 e rodar sem
 GMS/Play Integrity.
 
-> **Estado atual:** bundle funcional com **2 patches reais** — landscape/tablet, `minSdk` 29,
-> backport das chamadas API 30 e bypass do Play Integrity. Validado: build, aplicação no APK,
-> bytecode, carregamento no patcher do Manager (1.15.0), **fluxo completo no Morphe mobile**
-> (source → patch → instalação → app abre) e **startup sem GMS** (Play Services desativado no S24:
-> app abriu e carregou a home sem crash). No Galaxy S24/Android 16 o patch de landscape também
-> foi confirmado (`requestedOrientation=UNSPECIFIED`, UI em `land`). **Falta o runtime no DiLink
-> (Android 10)**, que é o único alvo que exercita o backport API 29.
+> **Estado atual:** bundle com landscape/tablet, `minSdk` 29, backport das chamadas API 30
+> (incluindo acessibilidade), confiança TLS interna para `gsd.apple.com` e bypass do Play
+> Integrity. Validado: build, aplicação no APK, bytecode, carregamento no patcher do Manager
+> (1.15.0), **fluxo completo no Morphe mobile** (source → patch → instalação → app abre) e
+> **startup sem GMS** (Play Services desativado no S24: app abriu e carregou a home sem crash).
+> No Galaxy S24/Android 16 o patch de landscape também foi confirmado
+> (`requestedOrientation=UNSPECIFIED`, UI em `land`). **Falta o runtime no DiLink (Android 10)**,
+> que é o único alvo que exercita o backport API 29 — o login ainda esbarra no WebView 74.
 
 ## Patches
 
 | Patch | Default | O que faz |
 |---|---|---|
-| `Apple Music DiLink support` | sim | `m1.x()` passa a devolver `K.TABLET` (destrava a rotação: `MainActivity` deixa de fixar `SENSOR_PORTRAIT`); `EmojiSearchFragment$a.onGlobalLayout()` retorna cedo em API < 30 (evita `NoSuchMethodError` em `WindowInsets.Type`/`setDecorFitsSystemWindows`); `getAppIntegrityToken()` devolve `null`, caminho que o app já trata. |
-| `Apple Music DiLink manifest` | não (dependência) | `minSdkVersion` 30 → 28 e remove `screenOrientation="portrait"` da única activity que o declarava (`MLIChromeTabActivity`), eliminando a feature implícita `android.hardware.screen.portrait`. |
+| `Apple Music DiLink support` | sim | `m1.x()` passa a devolver `K.TABLET` (destrava a rotação: `MainActivity` deixa de fixar `SENSOR_PORTRAIT`); `EmojiSearchFragment$a.onGlobalLayout()` retorna cedo em API < 30 (evita `NoSuchMethodError` em `WindowInsets.Type`/`setDecorFitsSystemWindows`); `getAppIntegrityToken()` devolve `null`, caminho que o app já trata; backport de `Objects.requireNonNullElse*`, `List.of`, `WifiInfo.getWifiStandard`, das chamadas de `WindowInsetsController` e dos acessores de *state description* (`View`/`AccessibilityNodeInfo`, API 30). |
+| `Apple Music DiLink manifest` | não (dependência) | `minSdkVersion` 30 → 29 e remove `screenOrientation="portrait"` da única activity que o declarava (`MLIChromeTabActivity`), eliminando a feature implícita `android.hardware.screen.portrait`. |
+| `Apple Music DiLink TLS trust` | não (dependência) | Substitui `res/xml/network_security_config.xml` para confiar em `@raw/apple_ca` (Apple Root CA - G3, já embutida no APK) **apenas** em `gsd.apple.com`; o resto continua usando o store do sistema. Nada é instalado no head unit. |
 
 Evidências da análise (com `arquivo:linha`) em [`analysis/apple-music-7.0.0.md`](analysis/apple-music-7.0.0.md);
 resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validation.md).
 
 ### Limitações conhecidas
 
-- **Android 10 (API 29) ainda não funciona.** A varredura de APIs ([`analysis/api-levels.md`](analysis/api-levels.md))
-  mostrou que o R8 removeu os guards `SDK_INT >= 30` das próprias bibliotecas: o compat de insets
-  (`p468x2.W`) e `Objects.requireNonNullElse*` chamam API 30 sem checagem e derrubam a tela principal.
-  Para API 28 há ainda `m1.<clinit>` (`FontStyle`). O patch atual só cobre as guardas de UI já mapeadas
-  (emoji e nova playlist); o backport completo é trabalho pendente.
+- **Android 10 (API 29) ainda não validado no carro.** A varredura de APIs ([`analysis/api-levels.md`](analysis/api-levels.md))
+  mostrou que o R8 removeu os guards `SDK_INT >= 30` das próprias bibliotecas. O patch agora cobre os
+  pontos mapeados (insets/`WindowInsetsController`, `Objects.requireNonNullElse*`, `List.of`,
+  `WifiInfo.getWifiStandard`, teclado de preferências e *state description* de acessibilidade), mas
+  ainda falta o teste no DiLink. Para API 28 há ainda `m1.<clinit>` (`FontStyle`), fora do escopo.
+- **Login:** depois do TLS dentro do APK o servidor responde (HTTP 200), mas o WebView 74 do DiLink
+  falha no bootstrap (`LoadingHTML` timeout); a causa provável é JavaScript moderno demais para esse
+  WebView. Ainda não resolvido/testado.
 - O bypass de integrity só cobre o lado Java. Se o servidor da Apple **exigir** o token, o próximo
   alvo é `libAMSKit.so` (nativo, FairPlay/FPDI) — não resolvido.
 - O APK final é um **APK único merged** (a CLI funde os splits) e é assinado com `CN=Morphe`:
@@ -45,8 +50,9 @@ patches/
   build.gradle.kts                   # about/group do bundle
   src/main/kotlin/
     app/morphe/patches/applemusic/shared/Constants.kt      # Compatibility + AppTarget("7.0.0")
-    app/morphe/patches/applemusic/dilink/AppleMusicDiLinkPatch.kt  # landscape + emoji + integrity
+    app/morphe/patches/applemusic/dilink/AppleMusicDiLinkPatch.kt  # landscape + API 29 backport
     app/morphe/patches/applemusic/dilink/DilinkManifestPatch.kt    # minSdk + portrait lock
+    app/morphe/patches/applemusic/dilink/DilinkTlsPatch.kt         # Apple Root CA G3 p/ gsd.apple.com
     util/PatchListGenerator.kt       # gera patches-list.json
 extensions/extension/                # módulo de extensão (.mpe), namespace app.morphe.extension.applemusic
 patches-list.json                    # gerado por :patches:generatePatchesList
@@ -104,6 +110,21 @@ Artefatos gerados em `patches/build/libs/`:
 > Sob o sandbox deste repo o Kotlin daemon não consegue abrir `~/.kotlin` e o build cai
 > automaticamente para compilação in-process (o build continua verde). Para evitar o erro no log:
 > `.\gradlew.bat :patches:build "-Pkotlin.compiler.execution.strategy=in-process"`.
+
+### Build via GitHub Actions
+
+Quando não há JVM utilizável no local (por exemplo, no próprio Android), o workflow
+[`.github/workflows/build.yml`](.github/workflows/build.yml) roda:
+
+```sh
+./gradlew clean :patches:generatePatchesList :patches:buildAndroid --no-daemon
+```
+
+e publica `patches/build/libs/*.mpp` + `patches-list.json` como artefato (`workflow_dispatch`).
+Requer o secret de repositório **`GPR_KEY`** (token com `read:packages`, para o registry
+`maven.pkg.github.com/MorpheApp/registry`) e, opcionalmente, **`GPR_USER`**. O `GITHUB_TOKEN`
+padrão do repositório não tem acesso aos pacotes de outra organização. O JDK 21 e o SDK Android
+(`platforms;android-36`, `build-tools;36.0.0`) são instalados no runner.
 
 ## Aplicar o bundle localmente (sem celular)
 

@@ -1,6 +1,45 @@
 # Handoff — Apple Music DiLink
 
-Atualizado em **2026-11-04**. Documento de passagem de contexto; não é uma release.
+Atualizado em **2026-11-05**. Documento de passagem de contexto; não é uma release.
+
+## Sessão 2026-11-05 — trabalho sem acesso ao carro
+
+O DiLink não estava acessível nesta sessão. Foi feito o que não depende dele:
+
+- **Porta do patch de acessibilidade para a fonte** (`AppleMusicDiLinkPatch.kt` +
+  `AccessibilityCompat.java`). Os call sites de API 30 foram contados em **todos** os dex do
+  7.0.0: `View.getStateDescription` (1: `x2/E$j.b`), `View.setStateDescription` virtual
+  (1: `x2/E$j.d`) e `invoke-super` (3: `Lif/a`, MaterialCheckBox em `classes4.dex`),
+  `AccessibilityNodeInfo.getStateDescription` (1: `y2/j.toString`) e
+  `AccessibilityNodeInfo.setStateDescription` (2: `x2/a$a.onInitializeAccessibilityNodeInfo` e
+  `androidx.compose.ui.platform.b$c.b`). O helper isola as chamadas API 30 numa classe aninhada
+  carregada só em API 30+, e devolve `null`/no-op em API 29.
+  Os 3 `invoke-super` de `Lif/a` vão para um no-op dedicado: redirecioná-los para o helper
+  virtual chamaria o override do próprio `Lif/a` e recursaria para sempre. Em API 30+ o
+  `Lif/a` mantém o campo próprio; só o valor de acessibilidade da plataforma deixa de ser
+  atualizado (regressão apenas de acessibilidade).
+- **Dois call sites extras de `View.getWindowInsetsController()`** foram protegidos:
+  `x2/E$j.c` (retorna `null` em API < 30) e `androidx/preference/a$a.a(Window)` (método inteiro
+  vira no-op em API < 30 — é o teclado de diálogo de preferência, que também usaria
+  `WindowInsets.Type.ime`).
+- **Patch de recurso TLS** (`DilinkTlsPatch.kt`): substitui `res/xml/network_security_config.xml`
+  por um `domain-config` estreito para `gsd.apple.com` confiando em `@raw/apple_ca`, mantendo o
+  store do sistema no resto. O manifest já referencia esse recurso e `res/raw/apple_ca.pem` já
+  existe no APK; nada é instalado no carro.
+- **Workflow de GitHub Actions** (`.github/workflows/build.yml`) para gerar `.mpp` +
+  `patches-list.json` sem JVM local. Precisa dos secrets `GPR_KEY` (token com `read:packages`) e
+  `GPR_USER`, porque o `GITHUB_TOKEN` do repositório não lê o registry da organização MorpheApp.
+- **Nada foi compilado, instalado, commitado ou publicado** nesta sessão. O JVM local continua
+  quebrado (`Failed to mark memory page as executable`).
+
+### Pendências quando o carro voltar
+
+1. Rodar o workflow (ou build local) e baixar o `.mpp` novo.
+2. Instalar no DiLink e repetir: `uiautomator dump` sem derrubar o app; Ajustes → Movimento;
+   login até o WebView.
+3. Investigar o timeout `LoadingHTML` via WebView DevTools (CDP) — sem isso o login continua
+   bloqueado, independente do TLS.
+4. Validar e só então subir versão, tag e release.
 
 ## Objetivo
 
@@ -301,6 +340,10 @@ Fluxo planejado, **ainda não executado**:
 Push, tag e release são ações externas: chamar `confirm` com a ação exata antes.
 
 ## Próximos passos, em ordem
+
+> O patch de acessibilidade e o TLS já foram portados para a **fonte** em 2026-11-05 (ver a
+> primeira seção). Os passos abaixo ficam para quando o DiLink voltar; o `fixed23` binário não é
+> mais necessário se o `.mpp` novo for validado.
 
 1. Reaplicar o patch binário de acessibilidade e gerar `fixed23`.
 2. Instalar no carro e confirmar que `uiautomator dump` não derruba mais o app.
