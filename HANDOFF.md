@@ -1,6 +1,62 @@
 # Handoff — Apple Music DiLink
 
-Atualizado em **2026-11-05**. Documento de passagem de contexto; não é uma release.
+Atualizado em **2026-11-06**. Documento de passagem de contexto; não é uma release.
+
+## Sessão 2026-11-06 — Android TV (branch `feat/android-tv`)
+
+Suporte a Android TV no mesmo bundle, **versão 1.3.0** (a 1.2.0 já estava publicada no `main`,
+então o bump foi para 1.3.0). O branch foi atualizado para `main` (`231d0d7`) antes do bump, logo
+a 1.3.0 herda as correções de UI do API 29 da 1.2.0 (tema do login no WebView e faixa preta das
+letras).
+
+Patches novos (todos `default=false`, dependem uns dos outros):
+
+- `Apple Music Android TV manifest` (`tv/TvManifestPatch.kt`): intent-filter `LEANBACK_LAUNCHER` +
+  `android:banner="@mipmap/ic_launcher"` na `MainActivity` e `uses-feature` de
+  `android.software.leanback`/`android.hardware.touchscreen` com `required=false`. Depende do
+  patch `Apple Music DiLink support` (minSdk 29 + tablet).
+- `Apple Music Android TV D-pad focus` (`tv/TvDpadPatch.kt`): `defaultFocusHighlightEnabled` e
+  ripple/foreground nos cards do Listen Now, nas linhas da Busca, no pill do mini player e nos
+  controles do player; `player_controls` deixa de ser focável; `nextFocusDown` no pill; padding no
+  `tab_navigation_host` (topo `?attr/actionBarSize`, base 80dp) para o foco sair da lista.
+- `Apple Music Android TV player expand focus` (`tv/TvExpandedFocusPatch.kt` +
+  `extensions/.../TvFocusCompat.java`): hook no `onStateChanged` (`PlayerMainFragment$i.c`) leva o
+  foco ao `play_pause` quando o sheet expande e devolve ao mini player/lista quando fecha.
+
+Device: TV box Xiaomi `MiTV-AFMU0` (product `twilight`), Android 14 / API 34, `armeabi-v7a`,
+1920×1080 a 320 dpi, `adb 100.74.105.35:5555`.
+
+Evidências (1.3.0):
+
+- Build: `.mpp` 1.3.0 em `patches/build/libs/` (784.251 B) e `patches-list.json` com 7 patches
+  (4 DiLink + 3 TV).
+- APK de release: `.pipeline/tv/merged32.apk` (base + `config.armeabi_v7a` + `config.xhdpi` do
+  APKM) → `.pipeline/release/AppleMusic-1.3.0-AndroidTV-arm32.apk` (100.455.600 B, SHA-256
+  `c4e1687845cee5952cc71aab9253c5d9744ade8be3031293c1d9f39e54a9f80c`).
+- `aapt2 dump badging`: `leanback-launchable-activity: ...MainActivity`,
+  `native-code: 'armeabi-v7a'`, `minSdkVersion:'29'`, `targetSdkVersion:'36'`,
+  `uses-feature-not-required` para leanback/touchscreen.
+- `apksigner verify --print-certs`: `CN=Morphe`, SHA-256
+  `1e058623722ed37eb59bb55411d01d6b7b212c6a8353aacecd60d515cee60463` (o mesmo do APK do DiLink,
+  então `install -r` manteve a conta).
+- Instalado com `adb install -r` e aberto com
+  `am start -n com.apple.android.music/com.apple.android.music.common.MainActivity`.
+- D-pad validado no controle: grade da Busca → pill do mini player → ENTER abre o Now Playing com
+  foco no play/pause → BACK volta para a lista; ENTER alterna PLAYING/PAUSED.
+- `dumpsys media_session`: a sessão do Apple Music fica em `PLAYING(3)` com metadata
+  `Lost In Hollywood / System Of A Down / Mezmerize`. As duas sessões em `ERROR(7)` com
+  "Áudio Bluetooth desconectado" são do `com.android.bluetooth`, não do app.
+- Screenshot: `.pipeline/tv/release-check.png` (abertura + Now Playing com foco);
+
+Limitações e pendências:
+
+- O indicador de foco é o highlight/ripple do framework, **não** escala o card; não há recursos
+  `-television`. As abas do topo são alcançadas com UP + LEFT a partir do conteúdo.
+- Banner provisório (`@mipmap/ic_launcher`); não há banner 320×180 no APK.
+- TV 32-bit exige o split `armeabi-v7a` no merge; o APK do DiLink (arm64) não instala no box.
+- Pendente: push do branch, merge/tag `v1.3.0` e release com `patches-1.3.0.mpp` +
+  `AppleMusic-1.3.0-AndroidTV-arm32.apk`; validar em outra TV (arm64/4-ABI) e decidir sobre
+  escala de foco.
 
 ## Sessão 2026-11-05 — trabalho sem acesso ao carro
 
