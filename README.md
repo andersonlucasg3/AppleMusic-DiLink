@@ -6,14 +6,19 @@ Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.
 Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 28/29 e rodar sem
 GMS/Play Integrity.
 
-> **Estado atual (1.1.0):** o app **instala, abre, loga e reproduz no DiLink** (API 29, landscape).
+> **Estado atual (1.2.0):** o app **instala, abre, loga e reproduz no DiLink** (API 29, landscape).
 > O login passa por e-mail, senha, 2FA e pelo `AMSIDMSAuthenticationCompleteAction`; o player toca
 > normalmente. Os assets JS da Apple são transpilados para Chrome 74 no build e servidos pelo APK;
 > o Anisette/ADI nativo é substituído por OTP local (GrandSlam V3 e Store AMD V1.5) com uma
 > identidade Android provisionada via `apple-auth` embutida no bundle.
 >
+> A 1.2.0 corrige duas falhas de UI no API 29: o tema do login no WebView (o JS servido passa a
+> reportar `prefers-color-scheme: dark`) e a faixa preta da tela de letras (o modo imersivo só é
+> aplicado em API 30+). O smoke da 1.2.0 foi feito no Galaxy S24; a validação no DiLink (carro)
+> ainda não foi feita.
+>
 > Validado: build, aplicação no APK, bytecode, carregamento no patcher do Manager, fluxo completo
-> no Morphe mobile, startup sem GMS e runtime no DiLink.
+> no Morphe mobile, startup sem GMS, runtime no DiLink (1.1.0) e smoke no S24 (1.2.0).
 
 ## Patches
 
@@ -37,7 +42,7 @@ resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validat
 - **Login resolvido:** WebView 74 (assets JS transpilados), 2FA e commerce auth (OTP local
   GrandSlam/Store) funcionam. O `libCoreADI` nativo não é mais chamado.
 - **UI (API 29):** o tema do login no WebView e a faixa preta da tela de letras estão corrigidos
-  na fonte (build de teste; validação no carro pendente). Seguem em aberto as linhas de toggle do
+  na 1.2.0 (smoke no S24 OK; validação no carro pendente). Seguem em aberto as linhas de toggle do
   Ajustes que não são pintadas e a decisão sobre o `peek` dos carrosséis (geometria está correta;
   os 36 dp à direita são o card seguinte).
 - **Entrada para patch: XAPK.** O bundle declara `apkFileType = XAPK`; arquivos `.apkm` são
@@ -101,9 +106,9 @@ Artefatos gerados em `patches/build/libs/`:
 
 | Arquivo | Conteúdo |
 |---|---|
-| `patches-1.0.4.mpp` | bundle aplicável (classes + `extensions/extension.mpe`) |
-| `patches-1.0.4-sources.mpp` | sources |
-| `patches-1.0.4-javadoc.mpp` | javadoc |
+| `patches-1.2.0.mpp` | bundle aplicável (classes + `extensions/extension.mpe`) |
+| `patches-1.2.0-sources.mpp` | sources |
+| `patches-1.2.0-javadoc.mpp` | javadoc |
 
 `generatePatchesList` reescreve `patches-list.json` (não editar à mão) e depende de `build`.
 
@@ -147,7 +152,7 @@ java -jar tools\APKEditor-1.4.9.jar m -i .pipeline\splits -o .pipeline\merged.ap
 
 ```powershell
 java -jar tools\morphe-desktop-1.20.0-all.jar patch `
-  -p patches\build\libs\patches-1.0.4.mpp `
+  -p patches\build\libs\patches-1.2.0.mpp `
   -o .pipeline\applemusic-7.0.0-dilink-patched.apk `
   .pipeline\merged.apk
 ```
@@ -165,7 +170,7 @@ O Morphe Desktop também aceita bundle de splits e faz o merge sozinho:
 
 ```powershell
 java -jar tools\morphe-desktop-1.20.0-all.jar patch `
-  -p patches\build\libs\patches-1.0.4.mpp `
+  -p patches\build\libs\patches-1.2.0.mpp `
   -o .pipeline\applemusic-7.0.0-from-xapk.apk `
   apks\apple-music-7.0.0\AppleMusic_7.0.0_apkpure.xapk
 ```
@@ -183,8 +188,8 @@ e o repositório serve como *patch source*:
 
 - **Remote**: no Morphe → **Sources** → **+** → Remote →
   `github.com/andersonlucasg3/apple-music-morphe-patches`.
-- **Local**: baixe `patches-1.0.4.mpp` do release e abra no Morphe, ou
-  `adb push patches-1.0.4.mpp /sdcard/Download/` e abra o arquivo no aparelho.
+- **Local**: baixe `patches-1.2.0.mpp` do release e abra no Morphe, ou
+  `adb push patches-1.2.0.mpp /sdcard/Download/` e abra o arquivo no aparelho.
 
 O Apple Music não é distribuído por este repositório, então o Morphe não oferece link de
 download: forneça o **XAPK 7.0.0 (vc 1614)** na tela de seleção de APK. O Manager funde os
