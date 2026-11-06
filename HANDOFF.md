@@ -86,12 +86,12 @@ O DiLink não estava acessível nesta sessão. Foi feito o que não depende dele
   `patches-list.json` sem JVM local. Precisa dos secrets `GPR_KEY` (token com `read:packages`) e
   `GPR_USER`, porque o `GITHUB_TOKEN` do repositório não lê o registry da organização MorpheApp.
   Os secrets foram configurados e o workflow rodou com sucesso
-  ([run 41950676081](https://github.com/andersonlucasg3/apple-music-morphe-patches/actions/runs/41950676081),
+  ([run 41950676081](https://github.com/andersonlucasg3/apple-music-android-freedom/actions/runs/41950676081),
   build em 2m01s): `patches-1.0.4.mpp` (708.779 B) + `patches-list.json` gerados, com
   `Patcher-Version: 1.6.0`, `classes.dex` e `extensions/extension.mpe` contendo
   `AccessibilityCompat`.
 - **Release 1.0.4 publicada** em
-  <https://github.com/andersonlucasg3/apple-music-morphe-patches/releases/tag/v1.0.4> com o asset
+  <https://github.com/andersonlucasg3/apple-music-android-freedom/releases/tag/v1.0.4> com o asset
   `patches-1.0.4.mpp` (SHA-256 `2a185656a6e13a46023e289f32da8366e694b9d6aac4ad279f15ac31cd330c1a`).
   `patches-bundle.json` e `patches-list.json` apontam para 1.0.4. O bundle foi salvo em
   `Downloads/Buddy/patches-1.0.4.mpp` no celular.
@@ -133,7 +133,7 @@ Fazer o Apple Music 7.0.0 (`com.apple.android.music`, versionCode 1614) rodar no
 
 ## Estado do repositório
 
-- Repositório: `https://github.com/andersonlucasg3/apple-music-morphe-patches`
+- Repositório: `https://github.com/andersonlucasg3/apple-music-android-freedom`
 - Branch: `main`
 - HEAD: `8c31f47 chore: regenerate patches-list for 1.0.4`
 - Working tree: limpo quando este handoff foi escrito.
@@ -507,7 +507,7 @@ Progresso concreto (tudo na fonte/mpp):
 O carro não estava acessível; tudo abaixo foi feito por análise de código/screenshots e build
 local. **Nada foi validado no DiLink com o build novo.**
 
-- **Repositório renomeado** para `andersonlucasg3/apple-music-morphe-patches`: remote, README,
+- **Repositório renomeado** para `andersonlucasg3/apple-music-android-freedom`: remote, README,
   `patches-bundle.json`, metadados do `patches/build.gradle.kts`, URL raw de
   `DilinkWebAssetsPatch.kt` e `analysis/validation.md` atualizados (commit `22820a8`). A release
   1.1.0 continua acessível no nome novo.

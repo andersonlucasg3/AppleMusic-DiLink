@@ -231,11 +231,11 @@ Outros comandos úteis da CLI (`java -jar tools\morphe-desktop-2.1.1-all.jar --h
 
 ## Usar no app Morphe (Android)
 
-O bundle é publicado em [releases](https://github.com/andersonlucasg3/apple-music-morphe-patches/releases)
+O bundle é publicado em [releases](https://github.com/andersonlucasg3/apple-music-android-freedom/releases)
 e o repositório serve como *patch source*:
 
 - **Remote**: no Morphe → **Sources** → **+** → Remote →
-  `github.com/andersonlucasg3/apple-music-morphe-patches`.
+  `github.com/andersonlucasg3/apple-music-android-freedom`.
 - **Local**: baixe `patches-1.3.0.mpp` do release e abra no Morphe, ou
   `adb push patches-1.3.0.mpp /sdcard/Download/` e abra o arquivo no aparelho.
 
