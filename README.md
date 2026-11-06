@@ -160,7 +160,7 @@ padrão do repositório não tem acesso aos pacotes de outra organização. O JD
 Um push de tag `v*` (ex.: `v1.3.0`) builda e publica a release `v1.3.0` em **uma única execução**
 do workflow, anexando `patches/build/libs/*.mpp` e `patches-list.json`. Se houver fonte de APK, o
 mesmo job também gera e anexa `AppleMusic-<versão>-AndroidTV-arm32.apk` (base + `armeabi_v7a` +
-`xhdpi` mergeados pelo APKEditor 1.4.9 e patcheados pela CLI do morphe-desktop 1.20.0), validado
+`xhdpi` mergeados pelo APKEditor 1.4.9 e patcheados pela CLI do morphe-desktop 2.1.1), validado
 com `aapt2 dump badging` (`leanback-launchable-activity`, `native-code: 'armeabi-v7a'`) e
 `apksigner verify --print-certs` (`CN=Morphe`). Sem fonte, a release sai só com o bundle.
 
@@ -187,7 +187,7 @@ A release é criada pelo `gh` com o `github.token` do próprio workflow (o job d
 
 Jars necessários (não versionados, baixar em `tools/`):
 
-- `morphe-desktop-1.20.0-all.jar` — <https://github.com/MorpheApp/morphe-desktop/releases/download/v1.20.0/morphe-desktop-1.20.0-all.jar>
+- `morphe-desktop-2.1.1-all.jar` — <https://github.com/MorpheApp/morphe-desktop/releases/download/v2.1.1/morphe-desktop-2.1.1-all.jar>
 - `APKEditor-1.4.9.jar` — <https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar>
 
 ### 1. Merge dos splits (base + arm64_v8a + mdpi)
@@ -199,7 +199,7 @@ java -jar tools\APKEditor-1.4.9.jar m -i .pipeline\splits -o .pipeline\merged.ap
 ### 2. Aplicar o patch
 
 ```powershell
-java -jar tools\morphe-desktop-1.20.0-all.jar patch `
+java -jar tools\morphe-desktop-2.1.1-all.jar patch `
   -p patches\build\libs\patches-1.3.0.mpp `
   -o .pipeline\applemusic-7.0.0-dilink-patched.apk `
   .pipeline\merged.apk
@@ -217,13 +217,13 @@ A CLI assina o APK de saída com o keystore padrão que ela gera em `tools/morph
 O Morphe Desktop também aceita bundle de splits e faz o merge sozinho:
 
 ```powershell
-java -jar tools\morphe-desktop-1.20.0-all.jar patch `
+java -jar tools\morphe-desktop-2.1.1-all.jar patch `
   -p patches\build\libs\patches-1.3.0.mpp `
   -o .pipeline\applemusic-7.0.0-from-xapk.apk `
   apks\apple-music-7.0.0\AppleMusic_7.0.0_apkpure.xapk
 ```
 
-Outros comandos úteis da CLI (`java -jar tools\morphe-desktop-1.20.0-all.jar --help`):
+Outros comandos úteis da CLI (`java -jar tools\morphe-desktop-2.1.1-all.jar --help`):
 
 - `list-patches --patches <mpp>` — lista os patches do bundle e se estão habilitados.
 - `list-versions --patches <mpp>` — versões de app declaradas na compatibilidade.
@@ -280,7 +280,7 @@ Xiaomi validado) são 32-bit: o APK só instala com `lib/armeabi-v7a`, e um bund
 
 ```powershell
 java -jar tools\APKEditor-1.4.9.jar m -i .pipeline\tv\splits32 -o .pipeline\tv\merged32.apk
-java -jar tools\morphe-desktop-1.20.0-all.jar patch `
+java -jar tools\morphe-desktop-2.1.1-all.jar patch `
   -p patches\build\libs\patches-1.3.0.mpp `
   -o .pipeline\release\AppleMusic-1.3.0-AndroidTV-arm32.apk `
   .pipeline\tv\merged32.apk `
