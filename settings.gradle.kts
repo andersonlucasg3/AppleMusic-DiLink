@@ -28,3 +28,7 @@ settings {
         defaultNamespace = "app.morphe.extension.applemusic"
     }
 }
+
+// Standalone Android TV client that talks to the patched Apple Music engine
+// through the framework MediaBrowser/MediaController API.
+include(":tv-app")
