@@ -2,7 +2,7 @@ group = "app.morphe.patches.applemusic"
 
 patches {
     about {
-        name = "Apple Music DiLink Patches"
+        name = "Apple Music Patches"
         description = "Morphe patches to run Apple Music 7.0.0 on the BYD DiLink 3.0 head unit"
         source = "https://github.com/andersonlucasg3/apple-music-morphe-patches"
         author = "andersonlucasg3"

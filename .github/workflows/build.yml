@@ -127,8 +127,8 @@ jobs:
           mkdir -p tools
           curl -L --fail --retry 3 -o tools/APKEditor-1.4.9.jar \
             https://github.com/REAndroid/APKEditor/releases/download/V1.4.9/APKEditor-1.4.9.jar
-          curl -L --fail --retry 3 -o tools/morphe-desktop-1.20.0-all.jar \
-            https://github.com/MorpheApp/morphe-desktop/releases/download/v1.20.0/morphe-desktop-1.20.0-all.jar
+          curl -L --fail --retry 3 -o tools/morphe-desktop-2.1.1-all.jar \
+            https://github.com/MorpheApp/morphe-desktop/releases/download/v2.1.1/morphe-desktop-2.1.1-all.jar
 
       - name: Download and extract TV splits
         if: steps.version.outputs.release == 'true' && steps.source.outputs.url != ''
@@ -164,7 +164,7 @@ jobs:
           set -euo pipefail
           java -jar tools/APKEditor-1.4.9.jar m -i splits32 -o merged32.apk
           APK="AppleMusic-${VERSION}-AndroidTV-arm32.apk"
-          java -jar tools/morphe-desktop-1.20.0-all.jar patch \
+          java -jar tools/morphe-desktop-2.1.1-all.jar patch \
             -p "$MPP" \
             -o "$APK" \
             merged32.apk \
