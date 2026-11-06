@@ -10,6 +10,9 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
+    <!-- Card artwork is served by the Apple Music browse tree as mzstatic URLs. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Needed to see/bind the Apple Music media browser service on API 30+. -->
     <queries>
         <package android:name="com.apple.android.music" />

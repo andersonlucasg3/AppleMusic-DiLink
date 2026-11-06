@@ -21,6 +21,7 @@ data class BrowseItem(
     val subtitle: String,
     val browsable: Boolean,
     val playable: Boolean,
+    val artworkUri: String? = null,
 )
 
 /** What the Apple Music media session is currently doing. */
@@ -31,6 +32,7 @@ data class PlaybackSnapshot(
     val durationMs: Long = 0L,
     val title: String = "",
     val artist: String = "",
+    val album: String = "",
     val artwork: Bitmap? = null,
 )
 
@@ -164,7 +166,7 @@ class MediaBrowserClient(context: Context) {
     private fun deliver(parentId: String, children: List<MediaBrowser.MediaItem>) {
         val items = children.map { it.toBrowseItem() }
         childrenCache[parentId] = items
-        Log.i(TAG, "children parent=$parentId count=${items.size}")
+        Log.i(TAG, "children parent=$parentId count=${items.size} art=${items.count { it.artworkUri != null }}")
         listener?.onChildren(parentId, items)
     }
 
@@ -273,6 +275,7 @@ class MediaBrowserClient(context: Context) {
                 durationMs = duration,
                 title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty(),
                 artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty(),
+                album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
                 artwork = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                     ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART),
             ),
@@ -287,6 +290,7 @@ class MediaBrowserClient(context: Context) {
             subtitle = description?.subtitle?.toString().orEmpty(),
             browsable = isBrowsable,
             playable = isPlayable,
+            artworkUri = description?.iconUri?.toString(),
         )
     }
 

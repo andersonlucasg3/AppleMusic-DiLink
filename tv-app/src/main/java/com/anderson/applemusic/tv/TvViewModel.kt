@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +30,9 @@ data class Section(
 /** One entry of the drill-down stack. */
 data class LevelNode(val id: String, val title: String)
 
+/** Transient "seeked by N seconds" hint shown by the full player. */
+data class SeekFeedback(val deltaMs: Long, val positionMs: Long)
+
 data class TvUiState(
     val phase: ConnectionPhase = ConnectionPhase.CONNECTING,
     val error: String? = null,
@@ -39,6 +43,9 @@ data class TvUiState(
     val levelItems: Map<String, List<BrowseItem>> = emptyMap(),
     val levelFailed: Set<String> = emptySet(),
     val playback: PlaybackSnapshot = PlaybackSnapshot(),
+    val nowPlayingOpen: Boolean = false,
+    val seekFeedback: SeekFeedback? = null,
+    val searchOpen: Boolean = false,
 )
 
 class TvViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,6 +53,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val client = MediaBrowserClient(application)
     private val _state = MutableStateFlow(TvUiState())
     val state: StateFlow<TvUiState> = _state.asStateFlow()
+    private var seekFeedbackJob: Job? = null
 
     private val listener = object : MediaBrowserClient.Listener {
         override fun onConnected() {
@@ -55,7 +63,9 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
         override fun onDisconnected(message: String) {
             Log.w(TAG, "disconnected: $message")
-            _state.update { it.copy(phase = ConnectionPhase.FAILED, error = message) }
+            _state.update {
+                it.copy(phase = ConnectionPhase.FAILED, error = message, nowPlayingOpen = false)
+            }
         }
 
         override fun onChildren(parentId: String, items: List<BrowseItem>) {
@@ -118,15 +128,61 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectTab(index: Int) {
         val tab = _state.value.tabs.getOrNull(index) ?: return
-        if (index == _state.value.selectedTab && _state.value.sections.isNotEmpty()) return
+        if (
+            index == _state.value.selectedTab &&
+            _state.value.sections.isNotEmpty() &&
+            !_state.value.searchOpen
+        ) {
+            return
+        }
         _state.update {
             it.copy(
                 selectedTab = index,
                 sections = emptyList(),
                 stack = emptyList(),
+                searchOpen = false,
             )
         }
         client.subscribe(tab.id)
+    }
+
+    fun openNowPlaying() {
+        val playback = _state.value.playback
+        if (!playback.hasSession || playback.title.isBlank()) return
+        _state.update { it.copy(nowPlayingOpen = true) }
+    }
+
+    fun closeNowPlaying() {
+        seekFeedbackJob?.cancel()
+        seekFeedbackJob = null
+        _state.update { it.copy(nowPlayingOpen = false, seekFeedback = null) }
+    }
+
+    fun openSearch() {
+        _state.update { it.copy(searchOpen = true) }
+    }
+
+    fun closeSearch() {
+        _state.update { it.copy(searchOpen = false) }
+    }
+
+    /** D-pad left/right on the full player's seek bar: +/- [deltaMs]. */
+    fun seekBy(deltaMs: Long) {
+        val playback = _state.value.playback
+        if (playback.durationMs <= 0L) return
+        val target = (playback.positionMs + deltaMs).coerceIn(0L, playback.durationMs)
+        client.seekTo(target)
+        _state.update {
+            it.copy(
+                playback = it.playback.copy(positionMs = target),
+                seekFeedback = SeekFeedback(deltaMs, target),
+            )
+        }
+        seekFeedbackJob?.cancel()
+        seekFeedbackJob = viewModelScope.launch {
+            delay(SEEK_FEEDBACK_MS)
+            _state.update { it.copy(seekFeedback = null) }
+        }
     }
 
     /** D-pad center on a card: descend if browsable, play if playable. */
@@ -236,6 +292,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        seekFeedbackJob?.cancel()
         client.disconnect()
         super.onCleared()
     }
@@ -243,5 +300,6 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val TAG = "AppleMusicTv"
         private const val PROGRESS_REFRESH_MS = 500L
+        private const val SEEK_FEEDBACK_MS = 1500L
     }
 }

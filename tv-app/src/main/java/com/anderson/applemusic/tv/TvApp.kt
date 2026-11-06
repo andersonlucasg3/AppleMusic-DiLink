@@ -2,7 +2,9 @@
 
 package com.anderson.applemusic.tv
 
+import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -10,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,11 +26,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,9 +53,15 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -61,13 +72,13 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
-import androidx.tv.material3.IconButton
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private val Background = Color(0xFF0A0A0B)
-private val BarBackground = Color(0xFF161618)
 private val CardColor = Color(0xFF1C1C1E)
 private val CardColorFocused = Color(0xFF34343A)
 private val TextPrimary = Color(0xFFFFFFFF)
@@ -75,52 +86,86 @@ private val TextSecondary = Color(0xFF9A9A9E)
 private val Accent = Color(0xFFFA233B)
 
 private const val CARDS_PER_ROW = 4
+private const val SEEK_STEP_MS = 10_000L
 
 @Composable
 fun TvApp(viewModel: TvViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val firstTabFocus = remember { FocusRequester() }
+    val playerFocus = remember { FocusRequester() }
+    var everOpenedPlayer by remember { mutableStateOf(false) }
 
     // TV apps start with nothing focused; put the D-pad on the tab bar and put it
     // back there whenever the drill-down stack returns to a tab root.
     LaunchedEffect(state.tabs.size, state.stack.size) {
-        if (state.tabs.isNotEmpty() && state.stack.isEmpty()) {
+        if (state.tabs.isNotEmpty() && state.stack.isEmpty() && !state.nowPlayingOpen && !state.searchOpen) {
             withFrameNanos { }
             runCatching { firstTabFocus.requestFocus() }
         }
     }
 
-    BackHandler(enabled = state.stack.isNotEmpty()) { viewModel.back() }
+    // Closing the full player returns the D-pad to the top-right player chip.
+    LaunchedEffect(state.nowPlayingOpen) {
+        if (state.nowPlayingOpen) {
+            everOpenedPlayer = true
+        } else if (everOpenedPlayer) {
+            withFrameNanos { }
+            runCatching { playerFocus.requestFocus() }
+        }
+    }
+
+    BackHandler(enabled = state.nowPlayingOpen) { viewModel.closeNowPlaying() }
+    BackHandler(enabled = !state.nowPlayingOpen && state.stack.isNotEmpty()) { viewModel.back() }
+    BackHandler(enabled = !state.nowPlayingOpen && state.searchOpen) { viewModel.closeSearch() }
 
     MaterialTheme {
         Box(Modifier.fillMaxSize().background(Background)) {
-            Column(Modifier.fillMaxSize()) {
-                Header(
-                    tabs = state.tabs,
-                    selected = state.selectedTab,
-                    onSelect = viewModel::selectTab,
-                    firstTabFocus = firstTabFocus,
+            if (state.nowPlayingOpen) {
+                NowPlayingScreen(
+                    playback = state.playback,
+                    seekFeedback = state.seekFeedback,
+                    onPlayPause = viewModel::togglePlayPause,
+                    onPrevious = viewModel::previous,
+                    onNext = viewModel::next,
+                    onSeekBy = viewModel::seekBy,
                 )
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    when (state.phase) {
-                        ConnectionPhase.CONNECTING -> CenteredMessage("Conectando ao Apple Music…")
-                        ConnectionPhase.FAILED -> ErrorPane(state.error, viewModel::retry)
-                        ConnectionPhase.CONNECTED -> {
-                            val top = state.stack.lastOrNull()
-                            if (top == null) {
-                                TabRoot(state, viewModel)
-                            } else {
-                                LevelGrid(
-                                    title = state.stack.joinToString(" › ") { it.title },
-                                    items = state.levelItems[top.id],
-                                    failed = top.id in state.levelFailed,
-                                    onItem = viewModel::enter,
-                                )
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    Header(
+                        tabs = state.tabs,
+                        selected = state.selectedTab,
+                        searchOpen = state.searchOpen,
+                        playback = state.playback,
+                        onSelect = viewModel::selectTab,
+                        onSearch = viewModel::openSearch,
+                        onOpenPlayer = viewModel::openNowPlaying,
+                        firstTabFocus = firstTabFocus,
+                        playerFocus = playerFocus,
+                    )
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        if (state.searchOpen) {
+                            SearchUnavailable()
+                        } else {
+                            when (state.phase) {
+                                ConnectionPhase.CONNECTING -> CenteredMessage("Conectando ao Apple Music…")
+                                ConnectionPhase.FAILED -> ErrorPane(state.error, viewModel::retry)
+                                ConnectionPhase.CONNECTED -> {
+                                    val top = state.stack.lastOrNull()
+                                    if (top == null) {
+                                        TabRoot(state, viewModel)
+                                    } else {
+                                        LevelGrid(
+                                            title = state.stack.joinToString(" › ") { it.title },
+                                            items = state.levelItems[top.id],
+                                            failed = top.id in state.levelFailed,
+                                            onItem = viewModel::enter,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                NowPlayingBar(state.playback, viewModel)
             }
         }
     }
@@ -130,8 +175,13 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
 private fun Header(
     tabs: List<TvTab>,
     selected: Int,
+    searchOpen: Boolean,
+    playback: PlaybackSnapshot,
     onSelect: (Int) -> Unit,
+    onSearch: () -> Unit,
+    onOpenPlayer: () -> Unit,
     firstTabFocus: FocusRequester,
+    playerFocus: FocusRequester,
 ) {
     Row(
         modifier = Modifier
@@ -146,11 +196,23 @@ private fun Header(
         tabs.forEachIndexed { index, tab ->
             TabPill(
                 title = tab.title,
-                selected = index == selected,
+                selected = !searchOpen && index == selected,
                 modifier = if (index == 0) Modifier.focusRequester(firstTabFocus) else Modifier,
                 onClick = { onSelect(index) },
             )
         }
+        HeaderIconButton(
+            iconRes = R.drawable.ic_search,
+            description = "Busca",
+            selected = searchOpen,
+            onClick = onSearch,
+        )
+        Spacer(Modifier.weight(1f))
+        PlayerChip(
+            playback = playback,
+            focusRequester = playerFocus,
+            onOpen = onOpenPlayer,
+        )
     }
 }
 
@@ -188,6 +250,98 @@ private fun TabPill(
             fontSize = 15.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
+    }
+}
+
+@Composable
+private fun HeaderIconButton(
+    iconRes: Int,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "headerIconScale")
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(if (focused) CardColorFocused else Color.Transparent)
+            .border(
+                BorderStroke(2.dp, if (focused) Color.White else if (selected) Accent else Color.Transparent),
+                CircleShape,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = description,
+            modifier = Modifier.size(20.dp),
+            tint = if (focused || selected) Color.White else TextSecondary,
+        )
+    }
+}
+
+/** Compact "now playing" chip on the navigation row; opens the full player. */
+@Composable
+private fun PlayerChip(
+    playback: PlaybackSnapshot,
+    focusRequester: FocusRequester,
+    onOpen: () -> Unit,
+) {
+    val hasTrack = playback.hasSession && playback.title.isNotBlank()
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "chipScale")
+    val elevation by animateDpAsState(if (focused) 14.dp else 0.dp, label = "chipElevation")
+    Row(
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .scale(scale)
+            .shadow(elevation, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (focused) CardColorFocused else CardColor)
+            .border(
+                BorderStroke(2.dp, if (focused) Color.White else Color.Transparent),
+                RoundedCornerShape(12.dp),
+            )
+            .then(
+                if (hasTrack) {
+                    Modifier
+                        .onFocusChanged { focused = it.isFocused }
+                        .clickable { onOpen() }
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(playback, 40.dp)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.widthIn(max = 220.dp)) {
+            Text(
+                text = if (hasTrack) playback.title else "Nada tocando",
+                color = if (hasTrack) TextPrimary else TextSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (hasTrack) {
+                    playback.artist.ifBlank { playback.album }.ifBlank { "Apple Music" }
+                } else {
+                    "Apple Music"
+                },
+                color = TextSecondary,
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -389,7 +543,17 @@ private fun TvCard(
             modifier = Modifier.fillMaxSize().padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ArtworkPlaceholder(52.dp)
+            Box(Modifier.size(52.dp)) {
+                ArtworkPlaceholder(52.dp)
+                if (item.artworkUri != null) {
+                    AsyncImage(
+                        model = item.artworkUri,
+                        contentDescription = null,
+                        modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -417,87 +581,249 @@ private fun TvCard(
 }
 
 @Composable
-private fun NowPlayingBar(playback: PlaybackSnapshot, viewModel: TvViewModel) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(86.dp)
-            .background(BarBackground)
-            .padding(horizontal = 32.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun NowPlayingScreen(
+    playback: PlaybackSnapshot,
+    seekFeedback: SeekFeedback?,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeekBy: (Long) -> Unit,
+) {
+    val playFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching { playFocus.requestFocus() }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(listOf(Color(0xFF2A1014), Background)),
+            ),
     ) {
-        Artwork(playback)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = if (playback.title.isBlank()) "Nada tocando" else playback.title,
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = if (playback.artist.isBlank()) "Apple Music" else playback.artist,
-                color = TextSecondary,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ProgressBar(
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 32.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BigArtwork(playback.artwork, 360.dp)
+            Spacer(Modifier.width(56.dp))
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "TOCANDO AGORA",
+                    color = Accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = playback.title.ifBlank { "Nada tocando" },
+                    color = TextPrimary,
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = playback.artist.ifBlank { "Apple Music" },
+                    color = TextSecondary,
+                    fontSize = 21.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (playback.album.isNotBlank()) {
+                    Text(
+                        text = playback.album,
+                        color = TextSecondary.copy(alpha = 0.75f),
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(44.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PlayerButton(
+                        iconRes = R.drawable.ic_prev,
+                        description = "Anterior",
+                        onClick = onPrevious,
+                    )
+                    PlayerButton(
+                        iconRes = if (playback.playing) R.drawable.ic_pause else R.drawable.ic_play,
+                        description = if (playback.playing) "Pausar" else "Tocar",
+                        modifier = Modifier.focusRequester(playFocus),
+                        size = 76.dp,
+                        iconSize = 36.dp,
+                        onClick = onPlayPause,
+                    )
+                    PlayerButton(
+                        iconRes = R.drawable.ic_next,
+                        description = "Próxima",
+                        onClick = onNext,
+                    )
+                }
+                Spacer(Modifier.height(30.dp))
+                SeekControl(
                     positionMs = playback.positionMs,
                     durationMs = playback.durationMs,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "${formatTime(playback.positionMs)} / ${formatTime(playback.durationMs)}",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
+                    feedback = seekFeedback,
+                    onSeekBy = onSeekBy,
                 )
             }
         }
-        Spacer(Modifier.width(20.dp))
-        IconButton(onClick = viewModel::previous, modifier = Modifier.size(48.dp)) {
-            Icon(
-                painter = painterResource(R.drawable.ic_prev),
-                contentDescription = "Anterior",
-                modifier = Modifier.size(24.dp),
+        Text(
+            text = "Pressione voltar para fechar",
+            color = TextSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+        )
+    }
+}
+
+@Composable
+private fun PlayerButton(
+    iconRes: Int,
+    description: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 56.dp,
+    iconSize: Dp = 26.dp,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "playerButtonScale")
+    val background by animateColorAsState(
+        if (focused) Color.White else CardColorFocused,
+        label = "playerButtonBackground",
+    )
+    val tint by animateColorAsState(if (focused) Color.Black else TextPrimary, label = "playerButtonTint")
+    Box(
+        modifier = modifier
+            .size(size)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(background)
+            .border(BorderStroke(2.dp, if (focused) Color.White else Color.Transparent), CircleShape)
+            .onFocusChanged { focused = it.isFocused }
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = description,
+            modifier = Modifier.size(iconSize),
+            tint = tint,
+        )
+    }
+}
+
+/** Focusable progress bar: left/right seek by [SEEK_STEP_MS] and show a hint. */
+@Composable
+private fun SeekControl(
+    positionMs: Long,
+    durationMs: Long,
+    feedback: SeekFeedback?,
+    onSeekBy: (Long) -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "seekScale")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (focused) CardColorFocused else Color.Transparent)
+            .border(
+                BorderStroke(2.dp, if (focused) Color.White else Color.Transparent),
+                RoundedCornerShape(12.dp),
             )
+            .onFocusChanged { focused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft -> {
+                        onSeekBy(-SEEK_STEP_MS)
+                        true
+                    }
+
+                    Key.DirectionRight -> {
+                        onSeekBy(SEEK_STEP_MS)
+                        true
+                    }
+
+                    else -> false
+                }
+            }
+            .focusable()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatTime(positionMs), color = TextSecondary, fontSize = 13.sp)
+            Text(formatTime(durationMs), color = TextSecondary, fontSize = 13.sp)
         }
-        IconButton(onClick = viewModel::togglePlayPause, modifier = Modifier.size(52.dp)) {
-            Icon(
-                painter = painterResource(
-                    if (playback.playing) R.drawable.ic_pause else R.drawable.ic_play,
+        Spacer(Modifier.height(8.dp))
+        ProgressBar(
+            positionMs = positionMs,
+            durationMs = durationMs,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = if (feedback != null) {
+                val arrow = if (feedback.deltaMs < 0L) "◀" else "▶"
+                val sign = if (feedback.deltaMs < 0L) "-" else "+"
+                "$arrow $sign${abs(feedback.deltaMs) / 1000}s • ${formatTime(feedback.positionMs)}"
+            } else {
+                "◀ ▶ buscam 10s"
+            },
+            color = if (feedback != null) Accent else TextSecondary,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun BigArtwork(bitmap: Bitmap?, size: Dp) {
+    val shape = RoundedCornerShape(18.dp)
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = Modifier.size(size).shadow(24.dp, shape).clip(shape),
+            contentScale = ContentScale.Crop,
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(listOf(Accent.copy(alpha = 0.85f), Color(0xFF5A1018))),
                 ),
-                contentDescription = if (playback.playing) "Pausar" else "Tocar",
-                modifier = Modifier.size(28.dp),
-            )
-        }
-        IconButton(onClick = viewModel::next, modifier = Modifier.size(48.dp)) {
-            Icon(
-                painter = painterResource(R.drawable.ic_next),
-                contentDescription = "Próxima",
-                modifier = Modifier.size(24.dp),
-            )
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("♪", color = Color.White, fontSize = 120.sp)
         }
     }
 }
 
 @Composable
-private fun Artwork(playback: PlaybackSnapshot) {
+private fun Artwork(playback: PlaybackSnapshot, size: Dp = 56.dp) {
     val bitmap = playback.artwork
     if (bitmap != null) {
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
-            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+            modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
             contentScale = ContentScale.Crop,
         )
     } else {
-        ArtworkPlaceholder(56.dp)
+        ArtworkPlaceholder(size)
     }
 }
 
@@ -536,6 +862,31 @@ private fun ProgressBar(positionMs: Long, durationMs: Long, modifier: Modifier =
                 .fillMaxHeight()
                 .fillMaxWidth(fraction)
                 .background(Accent),
+        )
+    }
+}
+
+@Composable
+private fun SearchUnavailable() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(48.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "Busca indisponível via engine",
+            color = TextPrimary,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "O catálogo Android Auto do Apple Music só expõe Início, Rádio e " +
+                "Biblioteca pelo MediaBrowser. Busca exigiria a API da Apple/UID compartilhado.",
+            color = TextSecondary,
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 760.dp),
         )
     }
 }
