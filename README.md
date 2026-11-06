@@ -177,11 +177,11 @@ Outros comandos úteis da CLI (`java -jar tools\morphe-desktop-1.20.0-all.jar --
 
 ## Usar no app Morphe (Android)
 
-O bundle é publicado em [releases](https://github.com/andersonlucasg3/AppleMusic-DiLink/releases)
+O bundle é publicado em [releases](https://github.com/andersonlucasg3/apple-music-morphe-patches/releases)
 e o repositório serve como *patch source*:
 
 - **Remote**: no Morphe → **Sources** → **+** → Remote →
-  `github.com/andersonlucasg3/AppleMusic-DiLink`.
+  `github.com/andersonlucasg3/apple-music-morphe-patches`.
 - **Local**: baixe `patches-1.0.4.mpp` do release e abra no Morphe, ou
   `adb push patches-1.0.4.mpp /sdcard/Download/` e abra o arquivo no aparelho.
 
