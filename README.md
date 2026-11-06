@@ -36,9 +36,10 @@ resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validat
   `m1.<clinit>` (`FontStyle`), fora do escopo.
 - **Login resolvido:** WebView 74 (assets JS transpilados), 2FA e commerce auth (OTP local
   GrandSlam/Store) funcionam. O `libCoreADI` nativo não é mais chamado.
-- **UI (API 29) — pendências de layout:** faixa preta na tela de letras, cards cortados à direita
-  nos carrosséis e espaçamentos grandes no Ajustes. São diferenças de layout/insets, **não** de
-  accent color (o app não usa dynamic color no carro).
+- **UI (API 29):** o tema do login no WebView e a faixa preta da tela de letras estão corrigidos
+  na fonte (build de teste; validação no carro pendente). Seguem em aberto as linhas de toggle do
+  Ajustes que não são pintadas e a decisão sobre o `peek` dos carrosséis (geometria está correta;
+  os 36 dp à direita são o card seguinte).
 - **Entrada para patch: XAPK.** O bundle declara `apkFileType = XAPK`; arquivos `.apkm` são
   rejeitados pelo Manager. Use o XAPK do Apple Music 7.0.0 (APKPure).
 - A identidade ADI embutida é sintética (sem conta); o APK final é merged e assinado com

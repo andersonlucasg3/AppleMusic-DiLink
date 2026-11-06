@@ -446,4 +446,43 @@ Progresso concreto (tudo na fonte/mpp):
 - Release 1.1.0: `.mpp` (entrada XAPK; APKM rejeitado pelo `apkFileType = XAPK`) e APK merged
   `AppleMusic-1.1.0-DiLink.apk` para instalação manual.
 
+## Sessão 2026-11-06 — fixes de UI (sem o carro)
+
+O carro não estava acessível; tudo abaixo foi feito por análise de código/screenshots e build
+local. **Nada foi validado no DiLink com o build novo.**
+
+- **Repositório renomeado** para `andersonlucasg3/apple-music-morphe-patches`: remote, README,
+  `patches-bundle.json`, metadados do `patches/build.gradle.kts`, URL raw de
+  `DilinkWebAssetsPatch.kt` e `analysis/validation.md` atualizados (commit `22820a8`). A release
+  1.1.0 continua acessível no nome novo.
+- **Login (WebView) — coloração quebrada (corrigido na fonte):** o widget da Apple escolhe o tema
+  com `matchMedia("(prefers-color-scheme: dark)")`; o WebView 74 tem `matchMedia`, mas não a media
+  feature, então `matches` é sempre falso. Resultado: fundo preto (WebView) + textos do tema claro
+  (`#1d1d1f`/`#494949`) e input claro. No S24 o `matches` é verdadeiro e o tema escuro fecha.
+  Correção em `PlatformCompat.interceptWebResource`: o JS servido por `shouldInterceptRequest`
+  passa por `applyColorSchemeCompat`, que troca as 6 ocorrências (1 `.matches` + 5 atribuições) por
+  um resultado "dark". JS reescrito passou no `node --check`.
+- **Letras — faixa preta (corrigido na fonte):** `player/c1.g` esconde a nav bar com
+  `setSystemUiVisibility(vis | 4098)` (IMMERSIVE_STICKY|HIDE_NAVIGATION) sem
+  `LAYOUT_HIDE_NAVIGATION`; em API 29 o conteúdo continua com 990 px e a área da barra (90 px)
+  fica preta. Fingerprint `PlayerLyricsImmersiveFingerprint`: em API < 30 o método retorna antes
+  de aplicar o imersivo (a barra do BYD volta, como nas outras telas); API 30+ inalterada.
+  Verificado por `dexdump` no dex patcheado.
+- **Carrosséis:** a geometria está correta — 6 cards de 274 px + 30 px de vão + 34 dp de margem
+  esquerda; os 54 px à direita são o `peek` de 36 dp do próximo card (`AbsolutePeekCarousel`).
+  O 6º card termina dentro da tela; o "Chill" cortado é a própria arte. Decisão de remover o peek
+  é de design, não bug de API.
+- **Ajustes:** tela é Compose (`AccountSettingsFragment` → `LazyColumn`). As linhas de toggle de
+  "Buscar Amigos" reservam altura (249 px cada) mas não pintam nada (pixels 0,0,0 até com
+  brightness 8×). Suspeita: alpha/cores do Compose theme no host; ainda **UNVERIFIED** — precisa
+  de dump da árvore (uiautomator já não derruba o app) ou reprodução em emulador.
+- **Build local voltou a funcionar:** o erro `IllegalArgumentException` do plugin `app.morphe.patches`
+  era falta de `GITHUB_ACTOR`/`GITHUB_TOKEN` (não do JVM). Com JDK 21 + essas variáveis,
+  `:patches:buildAndroid` e `morphe-desktop patch` rodam. Test build:
+  `.pipeline/tmp/ui-fix-test.apk` (104 MB, arm64, assinado pelo morphe-desktop) e
+  `patches/build/libs/patches-1.1.0.mpp` regenerado localmente (sem release).
+- **Emulador:** o AVD x86_64 API 29 foi criado em `.pipeline/emulator/` (WHPX OK), mas o APK é
+  arm64-only (`INSTALL_FAILED_NO_MATCHING_ABIS`). Para separar API de qualificador de tela, o
+  teste correto é o mesmo APK num emulador API 36 1920x1080/240dpi, não num API 29 x86.
+
 
