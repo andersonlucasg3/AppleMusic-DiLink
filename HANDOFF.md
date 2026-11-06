@@ -1,4 +1,4 @@
-# Handoff — Apple Music DiLink
+# Handoff — Apple Music
 
 Atualizado em **2026-11-06**. Documento de passagem de contexto; não é uma release.
 
@@ -11,15 +11,15 @@ letras).
 
 Patches novos (todos `default=false`, dependem uns dos outros):
 
-- `Apple Music Android TV manifest` (`tv/TvManifestPatch.kt`): intent-filter `LEANBACK_LAUNCHER` +
+- `TV: manifest` (`tv/TvManifestPatch.kt`): intent-filter `LEANBACK_LAUNCHER` +
   `android:banner="@mipmap/ic_launcher"` na `MainActivity` e `uses-feature` de
   `android.software.leanback`/`android.hardware.touchscreen` com `required=false`. Depende do
-  patch `Apple Music DiLink support` (minSdk 29 + tablet).
-- `Apple Music Android TV D-pad focus` (`tv/TvDpadPatch.kt`): `defaultFocusHighlightEnabled` e
+  patch `DiLink: support` (minSdk 29 + tablet).
+- `TV: D-pad focus` (`tv/TvDpadPatch.kt`): `defaultFocusHighlightEnabled` e
   ripple/foreground nos cards do Listen Now, nas linhas da Busca, no pill do mini player e nos
   controles do player; `player_controls` deixa de ser focável; `nextFocusDown` no pill; padding no
   `tab_navigation_host` (topo `?attr/actionBarSize`, base 80dp) para o foco sair da lista.
-- `Apple Music Android TV player expand focus` (`tv/TvExpandedFocusPatch.kt` +
+- `TV: player expand focus` (`tv/TvExpandedFocusPatch.kt` +
   `extensions/.../TvFocusCompat.java`): hook no `onStateChanged` (`PlayerMainFragment$i.c`) leva o
   foco ao `play_pause` quando o sheet expande e devolve ao mini player/lista quando fecha.
 

@@ -17,7 +17,7 @@ private const val AMS_ADAPTOR = "res/raw/js_ams_adaptor.js"
  */
 @Suppress("unused")
 internal val dilinkWebAssetsPatch = resourcePatch(
-    name = "Apple Music DiLink web assets",
+    name = "DiLink: web assets",
     description = "Embeds Chrome 74-compatible copies of the Apple sign-in JavaScript assets so " +
         "the sign-in page can run on the DiLink WebView, without a PC at runtime.",
     default = true,

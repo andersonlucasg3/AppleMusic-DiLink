@@ -89,7 +89,7 @@ private const val CONTENT_HOST_ID = "tab_navigation_host"
 
 @Suppress("unused")
 internal val tvDpadPatch = resourcePatch(
-    name = "Apple Music Android TV D-pad focus",
+    name = "TV: D-pad focus",
     description = "Adds a visible focus highlight to the Listen Now cards, the Search rows and " +
         "the player, and reserves room for the mini player around the content viewport.",
     default = false,

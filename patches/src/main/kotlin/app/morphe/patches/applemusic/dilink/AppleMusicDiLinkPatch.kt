@@ -609,7 +609,7 @@ private fun Instruction.isNewInstanceOf(type: String): Boolean =
 
 @Suppress("unused")
 val appleMusicDiLinkPatch = bytecodePatch(
-    name = "Apple Music DiLink support",
+    name = "DiLink: support",
     description = "Unlocks landscape rotation, lowers the API floor to Android 10 (API 29), " +
         "backports the API 30 java/androidx/accessibility calls and bypasses Play Integrity.",
     default = true,

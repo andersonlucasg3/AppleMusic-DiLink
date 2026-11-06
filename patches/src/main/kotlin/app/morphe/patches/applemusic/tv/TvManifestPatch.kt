@@ -21,7 +21,7 @@ private const val TOUCHSCREEN_FEATURE = "android.hardware.touchscreen"
  */
 @Suppress("unused")
 internal val tvManifestPatch = resourcePatch(
-    name = "Apple Music Android TV manifest",
+    name = "TV: manifest",
     description = "Adds a leanback launcher entry point and banner to MainActivity and declares leanback/touchscreen as not required.",
     default = false,
 ) {

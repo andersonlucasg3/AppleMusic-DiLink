@@ -168,9 +168,9 @@ jobs:
             -p "$MPP" \
             -o "$APK" \
             merged32.apk \
-            -e "Apple Music Android TV manifest" \
-            -e "Apple Music Android TV D-pad focus" \
-            -e "Apple Music Android TV player expand focus"
+            -e "TV: manifest" \
+            -e "TV: D-pad focus" \
+            -e "TV: player expand focus"
           if [ ! -f "$APK" ]; then
             echo "::error::APK de TV não foi gerado"
             exit 1

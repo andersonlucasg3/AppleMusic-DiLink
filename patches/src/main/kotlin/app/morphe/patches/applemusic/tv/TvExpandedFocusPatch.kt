@@ -20,7 +20,7 @@ internal object SheetStateChangedFingerprint : Fingerprint(
 
 @Suppress("unused")
 internal val tvExpandedFocusPatch = bytecodePatch(
-    name = "Apple Music Android TV player expand focus",
+    name = "TV: player expand focus",
     description = "Moves the D-pad focus into the Now Playing controls when the player sheet " +
         "expands, because the sheet container itself is not focusable.",
     default = false,

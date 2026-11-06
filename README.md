@@ -1,4 +1,4 @@
-# Apple Music DiLink — patches Morphe
+# Apple Music — patches Morphe
 
 Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.0.0**
 (`com.apple.android.music`, versionCode 1614) rodar no head unit **BYD DiLink 3.0** (Android 9/10).
@@ -29,13 +29,13 @@ GMS/Play Integrity. A partir da 1.3.0 o mesmo bundle também gera um APK para **
 
 | Patch | Default | O que faz |
 |---|---|---|
-| `Apple Music DiLink support` | sim | `m1.x()` passa a devolver `K.TABLET` (destrava a rotação: `MainActivity` deixa de fixar `SENSOR_PORTRAIT`); `EmojiSearchFragment$a.onGlobalLayout()` retorna cedo em API < 30 (evita `NoSuchMethodError` em `WindowInsets.Type`/`setDecorFitsSystemWindows`); `getAppIntegrityToken()` devolve `null`, caminho que o app já trata; backport de `Objects.requireNonNullElse*`, `List.of`, `WifiInfo.getWifiStandard`, das chamadas de `WindowInsetsController` e dos acessores de *state description* (`View`/`AccessibilityNodeInfo`, API 30). |
-| `Apple Music DiLink manifest` | não (dependência) | `minSdkVersion` 30 → 29 e remove `screenOrientation="portrait"` da única activity que o declarava (`MLIChromeTabActivity`), eliminando a feature implícita `android.hardware.screen.portrait`. |
-| `Apple Music DiLink TLS trust` | não (dependência) | Substitui `res/xml/network_security_config.xml` para confiar em `@raw/apple_ca` (Apple Root CA - G3, já embutida no APK) **apenas** em `gsd.apple.com`; o resto continua usando o store do sistema. Nada é instalado no head unit. |
-| `Apple Music DiLink web assets` | sim | Embute os assets JS da Apple (page + chunks `appleauth`) **transpilados para Chrome 74** dentro de `res/raw/js_ams_adaptor.js`; `PlatformCompat.interceptWebResource` serve esses assets em `shouldInterceptRequest`. Sem isso o WebView 74 do DiLink não parseia o ES2020 da Apple. |
-| `Apple Music Android TV manifest` | não | Adiciona um intent-filter `LEANBACK_LAUNCHER` (e banner) na `MainActivity` e declara `android.software.leanback`/`android.hardware.touchscreen` como `required=false`; sem isso a TV não lista o app. Reaproveita os layouts `w600dp` do tablet. |
-| `Apple Music Android TV D-pad focus` | não | `defaultFocusHighlightEnabled` + `foreground` nos cards do Listen Now, nas linhas da Busca, no pill do mini player e nos controles do Now Playing; tira o foco do container `player_controls` e dá `nextFocusDown` no pill. O padding do host do conteúdo deixa o foco sair da lista em cima/embaixo. |
-| `Apple Music Android TV player expand focus` | não | Hook no `onStateChanged` do `BottomSheetBehavior`: ao expandir o Now Playing o foco vai para o play/pause; ao fechar, volta ao mini player (ou à lista). |
+| `DiLink: support` | sim | `m1.x()` passa a devolver `K.TABLET` (destrava a rotação: `MainActivity` deixa de fixar `SENSOR_PORTRAIT`); `EmojiSearchFragment$a.onGlobalLayout()` retorna cedo em API < 30 (evita `NoSuchMethodError` em `WindowInsets.Type`/`setDecorFitsSystemWindows`); `getAppIntegrityToken()` devolve `null`, caminho que o app já trata; backport de `Objects.requireNonNullElse*`, `List.of`, `WifiInfo.getWifiStandard`, das chamadas de `WindowInsetsController` e dos acessores de *state description* (`View`/`AccessibilityNodeInfo`, API 30). |
+| `DiLink: manifest` | não (dependência) | `minSdkVersion` 30 → 29 e remove `screenOrientation="portrait"` da única activity que o declarava (`MLIChromeTabActivity`), eliminando a feature implícita `android.hardware.screen.portrait`. |
+| `DiLink: TLS trust` | não (dependência) | Substitui `res/xml/network_security_config.xml` para confiar em `@raw/apple_ca` (Apple Root CA - G3, já embutida no APK) **apenas** em `gsd.apple.com`; o resto continua usando o store do sistema. Nada é instalado no head unit. |
+| `DiLink: web assets` | sim | Embute os assets JS da Apple (page + chunks `appleauth`) **transpilados para Chrome 74** dentro de `res/raw/js_ams_adaptor.js`; `PlatformCompat.interceptWebResource` serve esses assets em `shouldInterceptRequest`. Sem isso o WebView 74 do DiLink não parseia o ES2020 da Apple. |
+| `TV: manifest` | não | Adiciona um intent-filter `LEANBACK_LAUNCHER` (e banner) na `MainActivity` e declara `android.software.leanback`/`android.hardware.touchscreen` como `required=false`; sem isso a TV não lista o app. Reaproveita os layouts `w600dp` do tablet. |
+| `TV: D-pad focus` | não | `defaultFocusHighlightEnabled` + `foreground` nos cards do Listen Now, nas linhas da Busca, no pill do mini player e nos controles do Now Playing; tira o foco do container `player_controls` e dá `nextFocusDown` no pill. O padding do host do conteúdo deixa o foco sair da lista em cima/embaixo. |
+| `TV: player expand focus` | não | Hook no `onStateChanged` do `BottomSheetBehavior`: ao expandir o Now Playing o foco vai para o play/pause; ao fechar, volta ao mini player (ou à lista). |
 
 Evidências da análise (com `arquivo:linha`) em [`analysis/apple-music-7.0.0.md`](analysis/apple-music-7.0.0.md);
 resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validation.md). Para TV:
@@ -284,9 +284,9 @@ java -jar tools\morphe-desktop-1.20.0-all.jar patch `
   -p patches\build\libs\patches-1.3.0.mpp `
   -o .pipeline\release\AppleMusic-1.3.0-AndroidTV-arm32.apk `
   .pipeline\tv\merged32.apk `
-  -e "Apple Music Android TV manifest" `
-  -e "Apple Music Android TV D-pad focus" `
-  -e "Apple Music Android TV player expand focus"
+  -e "TV: manifest" `
+  -e "TV: D-pad focus" `
+  -e "TV: player expand focus"
 ```
 
 Conferir o APK de saída (build-tools 36.0.0):
