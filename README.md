@@ -146,11 +146,42 @@ Quando não há JVM utilizável no local (por exemplo, no próprio Android), o w
 ./gradlew clean :patches:generatePatchesList :patches:buildAndroid --no-daemon
 ```
 
-e publica `patches/build/libs/*.mpp` + `patches-list.json` como artefato (`workflow_dispatch`).
+e publica `patches/build/libs/*.mpp` + `patches-list.json` como artefato (`if-no-files-found:
+error`). Roda em `workflow_dispatch` (artifact) e em push de tag `v*`; no caso da tag ele também
+cria a release — ver [Publicação (CI)](#publicação-ci).
+
 Requer o secret de repositório **`GPR_KEY`** (token com `read:packages`, para o registry
 `maven.pkg.github.com/MorpheApp/registry`) e, opcionalmente, **`GPR_USER`**. O `GITHUB_TOKEN`
 padrão do repositório não tem acesso aos pacotes de outra organização. O JDK 21 e o SDK Android
 (`platforms;android-36`, `build-tools;36.0.0`) são instalados no runner.
+
+## Publicação (CI)
+
+Um push de tag `v*` (ex.: `v1.3.0`) builda e publica a release `v1.3.0` em **uma única execução**
+do workflow, anexando `patches/build/libs/*.mpp` e `patches-list.json`. Se houver fonte de APK, o
+mesmo job também gera e anexa `AppleMusic-<versão>-AndroidTV-arm32.apk` (base + `armeabi_v7a` +
+`xhdpi` mergeados pelo APKEditor 1.4.9 e patcheados pela CLI do morphe-desktop 1.20.0), validado
+com `aapt2 dump badging` (`leanback-launchable-activity`, `native-code: 'armeabi-v7a'`) e
+`apksigner verify --print-certs` (`CN=Morphe`). Sem fonte, a release sai só com o bundle.
+
+As notas da release são a seção `description` do [`patches-bundle.json`](patches-bundle.json),
+copiada tal e qual — atualize-a antes de taguear. O job falha se um asset esperado não existir; a
+publicação não é silenciada.
+
+O `workflow_dispatch` tem os inputs opcionais `version` (sem o `v`) e `source_url`. Com `version`,
+ele também publica a release (o `gh` cria a tag); sem `version`, só gera o artifact.
+
+Secrets:
+
+- **`GPR_KEY`** (obrigatório) — token com `read:packages` para `app.morphe:morphe-patcher` no
+  GitHub Packages; **`GPR_USER`** (opcional) — conta do token. O `GITHUB_TOKEN` padrão do
+  repositório não lê pacotes de outra organização.
+- **`TV_SOURCE_URL`** (opcional) — URL do APKM/XAPK 4-ABI usado no APK de TV; o input
+  `source_url` do dispatch tem precedência. Sem ela, a release publica só `.mpp` +
+  `patches-list.json`.
+
+A release é criada pelo `gh` com o `github.token` do próprio workflow (o job declara
+`permissions: contents: write`); não é preciso PAT extra.
 
 ## Aplicar o bundle localmente (sem celular)
 
