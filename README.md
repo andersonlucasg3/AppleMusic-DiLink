@@ -34,7 +34,7 @@ GMS/Play Integrity. A partir da 1.3.0 o mesmo bundle também gera um APK para **
 | `DiLink: TLS trust` | não (dependência) | Substitui `res/xml/network_security_config.xml` para confiar em `@raw/apple_ca` (Apple Root CA - G3, já embutida no APK) **apenas** em `gsd.apple.com`; o resto continua usando o store do sistema. Nada é instalado no head unit. |
 | `DiLink: web assets` | sim | Embute os assets JS da Apple (page + chunks `appleauth`) **transpilados para Chrome 74** dentro de `res/raw/js_ams_adaptor.js`; `PlatformCompat.interceptWebResource` serve esses assets em `shouldInterceptRequest`. Sem isso o WebView 74 do DiLink não parseia o ES2020 da Apple. |
 | `TV: manifest` | não | Adiciona um intent-filter `LEANBACK_LAUNCHER` (e banner) na `MainActivity` e declara `android.software.leanback`/`android.hardware.touchscreen` como `required=false`; sem isso a TV não lista o app. Reaproveita os layouts `w600dp` do tablet. |
-| `TV: D-pad focus` | não | `defaultFocusHighlightEnabled` + `foreground` nos cards do Listen Now, nas linhas da Busca, no pill do mini player e nos controles do Now Playing; tira o foco do container `player_controls` e dá `nextFocusDown` no pill. O padding do host do conteúdo deixa o foco sair da lista em cima/embaixo. |
+| `TV: D-pad focus` | não | Foco em escala nos cards do Listen Now e da Busca (`stateListAnimator` de 1,06× + 8 dp de elevação), highlight nos controles do pill e do Now Playing, `player_controls` fora do caminho das setas, `nextFocusDown` no pill e padding no host do conteúdo para o foco sair da lista em cima/embaixo. |
 | `TV: player expand focus` | não | Hook no `onStateChanged` do `BottomSheetBehavior`: ao expandir o Now Playing o foco vai para o play/pause; ao fechar, volta ao mini player (ou à lista). |
 
 Evidências da análise (com `arquivo:linha`) em [`analysis/apple-music-7.0.0.md`](analysis/apple-music-7.0.0.md);
@@ -55,9 +55,9 @@ resultados dos testes em aparelho em [`analysis/validation.md`](analysis/validat
   na 1.2.0 (smoke no S24 OK; validação no carro pendente). Seguem em aberto as linhas de toggle do
   Ajustes que não são pintadas e a decisão sobre o `peek` dos carrosséis (geometria está correta;
   os 36 dp à direita são o card seguinte).
-- **Android TV:** o foco é highlight/ripple do framework, não escala o card; as abas do topo são
-  alcançadas com UP + LEFT; e TV box 32-bit só instala com o split `armeabi-v7a`. Detalhes em
-  [Android TV](#android-tv).
+- **Android TV:** o card focado cresce 6% via `stateListAnimator` e os controles usam highlight;
+  as abas do topo são alcançadas com UP + LEFT; e TV box 32-bit só instala com o split
+  `armeabi-v7a`. Detalhes em [Android TV](#android-tv).
 - **Entrada para patch: XAPK.** O bundle declara `apkFileType = XAPK`; arquivos `.apkm` são
   rejeitados pelo Manager. Use o XAPK do Apple Music 7.0.0 (APKPure).
 - A identidade ADI embutida é sintética (sem conta); o APK final é merged e assinado com
@@ -76,7 +76,7 @@ patches/
     app/morphe/patches/applemusic/dilink/DilinkManifestPatch.kt    # minSdk + portrait lock
     app/morphe/patches/applemusic/dilink/DilinkTlsPatch.kt         # Apple Root CA G3 p/ gsd.apple.com
     app/morphe/patches/applemusic/tv/TvManifestPatch.kt            # LEANBACK_LAUNCHER + banner + features
-    app/morphe/patches/applemusic/tv/TvDpadPatch.kt                # highlight de foco nos layouts
+    app/morphe/patches/applemusic/tv/TvDpadPatch.kt                # foco: escala nos cards + highlight
     app/morphe/patches/applemusic/tv/TvExpandedFocusPatch.kt       # foco no player ao expandir o sheet
     util/PatchListGenerator.kt       # gera patches-list.json
 extensions/extension/                # módulo de extensão (.mpe), namespace app.morphe.extension.applemusic
@@ -318,9 +318,11 @@ O ícone aparece no launcher de TV por causa do `LEANBACK_LAUNCHER` (o banner ai
 
 ### Limitações reais
 
-- **Foco é highlight, não escala:** o indicador é o `defaultFocusHighlightEnabled`/ripple do
-  framework nos cards e botões; o card não cresce nem anima como em apps de TV nativos. Não há
-  `-television` nem tamanhos de 10-foot UI; o layout é o de tablet (`w600dp`).
+- **Foco:** os cards do Listen Now e da Busca crescem 6% e sobem 8 dp via
+  `android:stateListAnimator="@anim/tv_focus_scale"` (o tipo `anim` já existe no APK; criar
+  `res/animator` novo é recusado pelo patcher). Pill e controles do Now Playing usam
+  highlight/ripple. Não há `-television` nem tamanhos de 10-foot UI; o layout é o de tablet
+  (`w600dp`).
 - **Abas:** o D-pad não percorre a barra de abas no eixo horizontal. A partir do conteúdo, suba
   com **UP** e use **LEFT** para chegar às abas (Início/Novo/Rádio/Biblioteca/Buscar).
 - O login continua sendo o WebView da Apple; no TV box ele abre e aceita a conta, mas digitar
