@@ -71,10 +71,38 @@ so a playback update never invalidates the browse tree). `MediaController.Callba
 position only — `getMetadata()` (which marshals the album art bitmap over binder) is
 called exclusively from the callbacks.
 
-D-pad order: initial focus is play/pause, `LEFT` = previous, `RIGHT` = next, `DOWN` =
-seek bar. On the seek bar `LEFT`/`RIGHT` call `TransportControls.seekTo` for −10 s /
+D-pad order: initial focus is play/pause, `LEFT` = previous, `RIGHT` = next, then the
+`Ações` pill, `DOWN` = seek bar. On the seek bar `LEFT`/`RIGHT` call `TransportControls.seekTo` for −10 s /
 +10 s and show "▶ +10s • 1:56" feedback for 1.5 s. `back` returns to the previous
 screen (tab root or drill-down grid) with focus on the chip.
+
+## Session actions
+
+The action list is generic over `PlaybackSnapshot.customActions`: the `Ações` pill on
+the full player opens a sheet that renders every action the engine announces for the
+current track (icon resolved from the engine package resources, title as published).
+`enter` calls `MediaBrowserClient.sendCustomAction(action.action)`, closes the sheet and
+shows a transient hint ("Favorito aplicado", "Criando estação…", or
+"<título> aplicado"). Focus enters the first row and `back` returns it to the pill; the
+sheet keeps `UP`/`DOWN` focus inside itself.
+
+Long-press `enter` on a playable card opens its context menu: "Criar estação" (always)
+and "Adicionar à Biblioteca" (only while the engine announces that action). Both play
+the item first, then wait up to 1.5 s for the engine to report `PLAYING` and to publish
+the action for the now-loaded track; if it does not, the hint is
+"Indisponível para este item". Focus returns to the card after the menu closes.
+
+## Visual tokens and fonts
+
+`TvTheme.kt` holds the palette used by every screen: black background (`#000000`),
+surface `#1C1C1E`, focused surface `#2C2C2E`, primary text `#FFFFFF`, secondary
+`#8E8E93`, accent `#FA243C`, card corner 14 dp, overlay corner 16 dp and 32 dp page
+padding. Cards are artwork-first with a bottom scrim; focus is a slight
+`graphicsLayer` scale plus a colour/brightness change, never an animated shadow.
+
+Typography is **Inter** (SIL OFL — SF Pro cannot be redistributed), bundled as static
+TTFs in `res/font` (400/500/600/700) with the licence in `res/raw/inter_license.txt`.
+The theme provides it through `LocalTextStyle`, so every `Text` inherits it.
 
 ## Artwork
 
@@ -110,16 +138,18 @@ shared-UID engine (like the existing Morphe patches). Not attempted in this phas
   grid use `LazyRow` / `LazyColumn` from `androidx.compose.foundation` with
   tv-material `Text` / `IconButton`; cards use a local `FocusCard` (`Box` +
   `graphicsLayer` scale), not the tv-material `Card` — see Performance.
-- Focus is shown with a 1.06 scale plus a lighter card surface; the
+- Focus is shown with a 1.05 scale plus a lighter surface/brightness lift; the
   per-card animated elevation (`Modifier.shadow`) was removed — see Performance.
   `enter` on a browsable card (or on a shelf header) pushes a level, `enter` on a
-  playable card calls `playFromMediaId`, and `back` pops the level stack.
+  playable card calls `playFromMediaId`, long-press `enter` opens the card menu and
+  `back` pops the level stack.
 - The 5th card peeking at the right edge of a shelf is intentional (lazy row with a
   hint of the next item), not a clipping bug.
 - The engine's session custom actions (Favorito, Aleatório, Repetir, Reprodução
-  Automática, Adicionar à Biblioteca, Criar Estação) are exposed by `:core`
-  (`PlaybackSnapshot.customActions`, `MediaBrowserClient.sendCustomAction`) but this
-  app still renders none of them: the UI is unchanged.
+  Automática, Adicionar à Biblioteca, Criar Estação) are rendered from
+  `PlaybackSnapshot.customActions`; see Session actions above. The engine currently
+  announces only Favorito and Criar Estação for the measured tracks, so
+  "Adicionar à Biblioteca" is hidden until it is published.
 
 ## Performance
 
@@ -159,6 +189,16 @@ p50 77 -> 57 ms, ~15 % more frames rendered** with the same key sweep. That clos
 open question from round 1. Round 2 takes another **-13.0 pp janky and p50 57 -> 42 ms**.
 (The raw debug-vs-release comparison from round 1 still holds: a debuggable APK renders
 ~4x slower, p50 250 ms / 96 % janky, which is why measurements moved to release.)
+
+### Revamp round (artwork-first cards)
+
+Same isolated leg (`leg.ps1 -Tag revamp -Repeat 3`, release): DOWN x12 = **12 heavy
+frames over 3 reps** (4 per leg, equal to round 2) with `heavyP50` **149.6 ms** (round 2:
+156.7 ms); RIGHT x16 = 0/0/1 heavy frames, `compP50` 8.1/8.3/8.5 ms. The full-bleed cover
+(220x124 with a bottom scrim) therefore did not add a heavy frame per shelf and the heavy
+frame stayed inside the round-2 range. The box was shared with other work during this
+run, so the gfxinfo percentiles (DOWN p50 61/65/97 ms) are only indicative; raw dumps are
+`perf2/revamp-*.txt` and `perf2/revamp.csv`.
 
 ### Where the DOWN cost actually is (framestats)
 
