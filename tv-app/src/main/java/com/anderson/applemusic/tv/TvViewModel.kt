@@ -42,7 +42,6 @@ data class TvUiState(
     val stack: List<LevelNode> = emptyList(),
     val levelItems: Map<String, List<BrowseItem>> = emptyMap(),
     val levelFailed: Set<String> = emptySet(),
-    val playback: PlaybackSnapshot = PlaybackSnapshot(),
     val nowPlayingOpen: Boolean = false,
     val seekFeedback: SeekFeedback? = null,
     val searchOpen: Boolean = false,
@@ -53,6 +52,12 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val client = MediaBrowserClient(application)
     private val _state = MutableStateFlow(TvUiState())
     val state: StateFlow<TvUiState> = _state.asStateFlow()
+
+    // Playback lives in its own flow: the progress tick must not invalidate the
+    // browse tree (shelves, grid) on every update.
+    private val _playback = MutableStateFlow(PlaybackSnapshot())
+    val playback: StateFlow<PlaybackSnapshot> = _playback.asStateFlow()
+
     private var seekFeedbackJob: Job? = null
 
     private val listener = object : MediaBrowserClient.Listener {
@@ -92,7 +97,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         override fun onPlayback(snapshot: PlaybackSnapshot) {
-            _state.update { it.copy(playback = snapshot) }
+            _playback.value = snapshot
         }
     }
 
@@ -101,14 +106,17 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         connect()
         viewModelScope.launch {
             while (isActive) {
-                client.refreshPlayback()
                 delay(PROGRESS_REFRESH_MS)
+                // The position only matters on the full player; everywhere else the
+                // MediaController callbacks already deliver track changes.
+                if (_state.value.nowPlayingOpen) client.refreshPlayback()
             }
         }
     }
 
     fun connect() {
         _state.value = TvUiState()
+        _playback.value = PlaybackSnapshot()
         if (!MediaBrowserClient.isAppleMusicInstalled(getApplication())) {
             _state.update {
                 it.copy(
@@ -147,7 +155,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openNowPlaying() {
-        val playback = _state.value.playback
+        val playback = _playback.value
         if (!playback.hasSession || playback.title.isBlank()) return
         _state.update { it.copy(nowPlayingOpen = true) }
     }
@@ -168,16 +176,12 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     /** D-pad left/right on the full player's seek bar: +/- [deltaMs]. */
     fun seekBy(deltaMs: Long) {
-        val playback = _state.value.playback
+        val playback = _playback.value
         if (playback.durationMs <= 0L) return
         val target = (playback.positionMs + deltaMs).coerceIn(0L, playback.durationMs)
         client.seekTo(target)
-        _state.update {
-            it.copy(
-                playback = it.playback.copy(positionMs = target),
-                seekFeedback = SeekFeedback(deltaMs, target),
-            )
-        }
+        _playback.update { it.copy(positionMs = target) }
+        _state.update { it.copy(seekFeedback = SeekFeedback(deltaMs, target)) }
         seekFeedbackJob?.cancel()
         seekFeedbackJob = viewModelScope.launch {
             delay(SEEK_FEEDBACK_MS)

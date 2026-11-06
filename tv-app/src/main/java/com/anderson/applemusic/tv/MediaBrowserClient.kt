@@ -206,11 +206,14 @@ class MediaBrowserClient(context: Context) {
         controller?.transportControls?.seekTo(positionMs)
     }
 
-    /** Re-reads the session state (the position advances while playing). */
+    /**
+     * Re-reads the session position (the position advances while playing). Metadata is
+     * deliberately not touched here: `MediaController.getMetadata()` marshals the album
+     * art bitmap across a binder transaction, so it is only read from the callbacks.
+     */
     fun refreshPlayback() {
         val current = controller ?: return
         current.playbackState?.let { lastState = it }
-        runCatching { current.metadata }.getOrNull()?.let { lastMetadata = it }
         emitPlayback()
     }
 

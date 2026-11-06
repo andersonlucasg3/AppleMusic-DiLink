@@ -5,7 +5,6 @@ package com.anderson.applemusic.tv
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -28,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -59,6 +59,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +77,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -122,7 +126,7 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
         Box(Modifier.fillMaxSize().background(Background)) {
             if (state.nowPlayingOpen) {
                 NowPlayingScreen(
-                    playback = state.playback,
+                    playbackFlow = viewModel.playback,
                     seekFeedback = state.seekFeedback,
                     onPlayPause = viewModel::togglePlayPause,
                     onPrevious = viewModel::previous,
@@ -135,7 +139,7 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                         tabs = state.tabs,
                         selected = state.selectedTab,
                         searchOpen = state.searchOpen,
-                        playback = state.playback,
+                        playbackFlow = viewModel.playback,
                         onSelect = viewModel::selectTab,
                         onSearch = viewModel::openSearch,
                         onOpenPlayer = viewModel::openNowPlaying,
@@ -176,13 +180,16 @@ private fun Header(
     tabs: List<TvTab>,
     selected: Int,
     searchOpen: Boolean,
-    playback: PlaybackSnapshot,
+    playbackFlow: StateFlow<PlaybackSnapshot>,
     onSelect: (Int) -> Unit,
     onSearch: () -> Unit,
     onOpenPlayer: () -> Unit,
     firstTabFocus: FocusRequester,
     playerFocus: FocusRequester,
 ) {
+    // Collected here, not in TvApp: a playback update then only invalidates the header
+    // row instead of the whole browse tree.
+    val playback by playbackFlow.collectAsStateWithLifecycle()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -295,12 +302,10 @@ private fun PlayerChip(
     val hasTrack = playback.hasSession && playback.title.isNotBlank()
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "chipScale")
-    val elevation by animateDpAsState(if (focused) 14.dp else 0.dp, label = "chipElevation")
     Row(
         modifier = Modifier
             .focusRequester(focusRequester)
             .scale(scale)
-            .shadow(elevation, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(if (focused) CardColorFocused else CardColor)
             .border(
@@ -353,7 +358,7 @@ private fun TabRoot(state: TvUiState, viewModel: TvViewModel) {
         verticalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
     ) {
-        items(visibleSections, key = { it.id }) { section ->
+        items(visibleSections, key = { it.id }, contentType = { "section" }) { section ->
             SectionRow(
                 section = section,
                 onOpenSection = { viewModel.openSection(section) },
@@ -393,17 +398,27 @@ private fun SectionRow(
             ) {
                 val offset = if (section.direct) 0 else 1
                 if (!section.direct) {
-                    item(key = "open-${section.id}") {
+                    item(key = "open-${section.id}", contentType = "seeAll") {
                         SeeAllCard(
                             count = section.items.size,
                             onClick = onOpenSection,
                         )
                     }
                 }
-                itemsIndexed(section.items, key = { _, item -> item.id }) { index, item ->
+                itemsIndexed(
+                    section.items,
+                    key = { _, item -> item.id },
+                    contentType = { _, _ -> "card" },
+                ) { index, item ->
                     TvCard(
                         item = item,
-                        onFocused = { scope.launch { rowState.animateScrollToItem(index + offset) } },
+                        onFocused = {
+                            // Only scroll when the focused card is clipped; an
+                            // already visible card costs no animation at all.
+                            if (rowState.needsScrollTo(index + offset)) {
+                                scope.launch { rowState.animateScrollToItem(index + offset) }
+                            }
+                        },
                         onClick = { onItem(item) },
                     )
                 }
@@ -412,18 +427,25 @@ private fun SectionRow(
     }
 }
 
+/**
+ * True when [index] is not fully inside the viewport, so the focused item needs a
+ * scroll. Items that are already fully visible cost nothing.
+ */
+private fun LazyListState.needsScrollTo(index: Int): Boolean {
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return true
+    return item.offset < info.viewportStartOffset ||
+        item.offset + item.size > info.viewportEndOffset
+}
+
 /** Focusable "open this shelf as a grid" entry at the start of every row. */
 @Composable
 private fun SeeAllCard(count: Int, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val elevation by animateDpAsState(if (focused) 18.dp else 0.dp, label = "seeAllElevation")
     Card(
         onClick = onClick,
         modifier = Modifier
             .width(132.dp)
-            .height(112.dp)
-            .onFocusChanged { focused = it.isFocused }
-            .shadow(elevation, RoundedCornerShape(10.dp)),
+            .height(112.dp),
         shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
         colors = CardDefaults.colors(
             containerColor = CardColor,
@@ -465,6 +487,7 @@ private fun LevelGrid(
     val columnState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val firstCard = remember { FocusRequester() }
+    val rows = remember(items) { items.chunked(CARDS_PER_ROW) }
 
     LaunchedEffect(items) {
         withFrameNanos { }
@@ -486,7 +509,11 @@ private fun LevelGrid(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
-            items(items.chunked(CARDS_PER_ROW)) { rowItems ->
+            itemsIndexed(
+                rows,
+                key = { _, rowItems -> rowItems.first().id },
+                contentType = { _, _ -> "gridRow" },
+            ) { rowIndex, rowItems ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     rowItems.forEach { item ->
                         val isFirst = item === items.first()
@@ -494,8 +521,7 @@ private fun LevelGrid(
                             item = item,
                             modifier = if (isFirst) Modifier.focusRequester(firstCard) else Modifier,
                             onFocused = {
-                                val rowIndex = items.indexOf(item) / CARDS_PER_ROW
-                                if (rowIndex >= 0) {
+                                if (columnState.needsScrollTo(rowIndex)) {
                                     scope.launch { columnState.animateScrollToItem(rowIndex) }
                                 }
                             },
@@ -517,19 +543,12 @@ private fun TvCard(
     onFocused: () -> Unit = {},
     onClick: () -> Unit,
 ) {
-    var focused by remember(item.id) { mutableStateOf(false) }
-    val elevation by animateDpAsState(if (focused) 18.dp else 0.dp, label = "cardElevation")
-
     Card(
         onClick = onClick,
         modifier = modifier
             .width(width)
             .height(height)
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .shadow(elevation, RoundedCornerShape(10.dp)),
+            .onFocusChanged { if (it.isFocused) onFocused() },
         shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
         colors = CardDefaults.colors(
             containerColor = CardColor,
@@ -546,8 +565,17 @@ private fun TvCard(
             Box(Modifier.size(52.dp)) {
                 ArtworkPlaceholder(52.dp)
                 if (item.artworkUri != null) {
+                    val context = LocalContext.current
+                    val artPx = with(LocalDensity.current) { 52.dp.roundToPx() }
                     AsyncImage(
-                        model = item.artworkUri,
+                        // Explicit target size: Coil then decodes a 52 dp thumbnail
+                        // instead of whatever the CDN serves.
+                        model = remember(item.artworkUri, artPx) {
+                            ImageRequest.Builder(context)
+                                .data(item.artworkUri)
+                                .size(artPx, artPx)
+                                .build()
+                        },
                         contentDescription = null,
                         modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop,
@@ -582,13 +610,14 @@ private fun TvCard(
 
 @Composable
 private fun NowPlayingScreen(
-    playback: PlaybackSnapshot,
+    playbackFlow: StateFlow<PlaybackSnapshot>,
     seekFeedback: SeekFeedback?,
     onPlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onSeekBy: (Long) -> Unit,
 ) {
+    val playback by playbackFlow.collectAsStateWithLifecycle()
     val playFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         withFrameNanos { }

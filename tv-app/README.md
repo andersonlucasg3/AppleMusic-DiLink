@@ -23,6 +23,10 @@ $env:GITHUB_ACTOR="andersonlucasg3"; $env:GITHUB_TOKEN=$(gh auth token)
 The module does not use the default debug key (`signingConfig = null`); the APK that
 AGP writes is `tv-app/build/outputs/apk/debug/tv-app-debug-unsigned.apk`.
 
+For the box, prefer the release variant (`:tv-app:assembleRelease` →
+`tv-app/build/outputs/apk/release/tv-app-release-unsigned.apk`, same signing steps): a
+debuggable APK renders ~4x slower here, see Performance.
+
 ## Sign with the Morphe certificate
 
 ```powershell
@@ -49,11 +53,13 @@ area never competes with it for focus.
 
 The full screen shows large artwork, title, artist, album, elapsed/total time and a
 progress bar. Values come from `MediaController.getPlaybackState()` /
-`getMetadata()` through `TvUiState.playback` (`StateFlow` collected with
-`collectAsStateWithLifecycle`). `MediaController.Callback`
-(`onPlaybackStateChanged` / `onMetadataChanged`) re-emits state immediately; a 500 ms
-`viewModelScope` loop only advances the position while playing, so no Android timers
-leak.
+`getMetadata()` in a dedicated `TvViewModel.playback` `StateFlow`, collected with
+`collectAsStateWithLifecycle` inside `NowPlayingScreen` / `Header` (not in `TvApp`,
+so a playback update never invalidates the browse tree). `MediaController.Callback`
+(`onPlaybackStateChanged` / `onMetadataChanged`) delivers track changes; the 500 ms
+`viewModelScope` tick only runs while the full player is open, and it re-reads the
+position only — `getMetadata()` (which marshals the album art bitmap over binder) is
+called exclusively from the callbacks.
 
 D-pad order: initial focus is play/pause, `LEFT` = previous, `RIGHT` = next, `DOWN` =
 seek bar. On the seek bar `LEFT`/`RIGHT` call `TransportControls.seekTo` for −10 s /
@@ -93,32 +99,76 @@ shared-UID engine (like the existing Morphe patches). Not attempted in this phas
   removed in favour of the regular Compose lazy layouts), so the shelves and the
   grid use `LazyRow` / `LazyColumn` from `androidx.compose.foundation` with
   tv-material `Card` / `Text` / `IconButton`.
-- Focus is shown with a 1.06 scale + elevation + lighter card surface; `enter` on a
-  browsable card (or on a shelf header) pushes a level, `enter` on a playable card
-  calls `playFromMediaId`, and `back` pops the level stack.
+- Focus is shown with the tv-material 1.06 card scale plus a lighter card surface; the
+  per-card animated elevation (`Modifier.shadow`) was removed — see Performance.
+  `enter` on a browsable card (or on a shelf header) pushes a level, `enter` on a
+  playable card calls `playFromMediaId`, and `back` pops the level stack.
 - The 5th card peeking at the right edge of a shelf is intentional (lazy row with a
   hint of the next item), not a clipping bug.
 
-## Performance / próximos passos
+## Performance
 
-Owner feedback after Fase 2: the app feels heavy and focus movement between cards is
-slow. Not optimized in this iteration. Hypotheses to investigate:
+Measured on the Xiaomi MiTV box (`MiTV-AFMU0`, API 34, arm32, 3840x2160 overridden to
+1920x1080 @ 320 dpi, ~2 GB RAM) with the Apple Music engine playing. Method:
+`.pipeline/tv-app/perf/sweep.ps1` — cold start + 10 s load wait, `dumpsys gfxinfo
+com.anderson.applemusic.tv reset`, then 20x RIGHT, 20x LEFT, 10x DOWN, 10x UP at
+~120 ms per key, then `dumpsys gfxinfo` (same script before and after; 3 runs each).
+Raw: `.pipeline/tv-app/perf/before*.txt`, `after*.txt`, `release*.txt`.
 
-- The 1.06 scale + elevation animation runs on every focus change, and the focused
-  card also triggers `animateScrollToItem`, so each D-pad press queues layout and
-  animation work.
-- `LazyRow`/`LazyColumn` items declare no `contentType`, so Compose cannot reuse
-  compositions between SeeAll and playable cards while scrolling.
-- Coil decodes new 256 px images while the focused row scrolls; no prefetch or
-  crossfade tuning.
-- The box is arm32 with ~2 GB RAM and this is a non-minified debug build.
-- `TvUiState` carries `playback`, which changes every 500 ms; that recomposes the
-  whole `TvApp` tree (shelves included) even when only the chip needs the new value.
-  Splitting playback into its own `StateFlow` is the first thing to try.
+| build | run | frames | janky | p50 | p90 | p99 |
+|---|---|---|---|---|---|---|
+| before (debug) | 1/2/3 | 93/83/94 | 96.8/94.0/89.4 % | 250/250/200 | 650/650/600 | 750/900/950 |
+| after (debug) | 1/2/3 | 87/99/96 | 97.7/87.9/88.5 % | 300/200/250 | 700/600/600 | 800/1000/700 |
+| after (**release**) | 1/2 | 166/164 | 68.1/68.3 % | **65/61** | **250/250** | **300/300** |
 
-Measure with `adb shell dumpsys gfxinfo com.anderson.applemusic.tv framestats` and
-`adb shell dumpsys gfxinfo com.anderson.applemusic.tv reset` around a scripted D-pad
-walk; add JankStats or a Macrobenchmark for a repeatable baseline later.
+What the changes did, and what they did not:
+
+- **Debuggable build is the dominant factor.** The same source as a release APK
+  (`assembleRelease`, unsigned then signed with the Morphe cert; `isMinifyEnabled =
+  false`) drops p50 from ~250 ms to ~61 ms and p99 from ~900 ms to ~300 ms — about 4x
+  shorter frames, and the same key sweep renders ~1.8x more frames (166 vs 93). The
+  debug APK is the wrong daily driver for this box.
+- **Playback poll was costing 2 janky frames/s while idle.** With 10 s of no input the
+  old build rendered 20 frames, all janky, p50 89 ms (100 %). After splitting
+  `playback` out of `TvUiState` into its own `StateFlow`, collecting it inside
+  `Header` / `NowPlayingScreen`, tick-ing only while the full player is open and
+  dropping the `getMetadata()` call from `refreshPlayback()`: **0 frames in 10 s** idle.
+  This does not show in the sweep table because the sweep is dominated by scrolling.
+- **Vertical navigation is ~10x the cost of horizontal** (debug, isolated legs):
+  `RIGHT x10` = 16 frames, p50 57 ms; `DOWN x10` = 25 frames, p50 700 ms; `UP x10` over
+  already-visited rows = 27 frames, p50 400 ms. `framestats` attributes 360-440 ms of
+  the DOWN frames to the *recomposition* phase (layout stays at 0.3 ms, GPU 8 ms), i.e.
+  composing a newly revealed row of ~7 cards. That is Compose composition cost on this
+  SoC, not shadows, not images (UP over cached artwork is just as slow).
+- **Animated shadows removed** (per-card `animateDpAsState` + `Modifier.shadow` in
+  `TvCard`, `SeeAllCard` and the player chip). Focus is now only the tv-material 1.06
+  card scale + `focusedContainerColor`. No measurable change in the debug sweep — the
+  shadow was not the bottleneck — but it removes an allocation and an animation per
+  focus change.
+- **Row scroll only when needed**: `LazyListState.needsScrollTo(index)` checks
+  `visibleItemsInfo` against `viewportStartOffset`/`viewportEndOffset`; a card that is
+  already fully visible triggers no `animateScrollToItem` at all (shelf and grid).
+- **`contentType` + stable keys** on the shelves (`"section"`, `"seeAll"`, `"card"`) and
+  the grid rows (`"gridRow"`, keyed by the row's first item id), and the grid no longer
+  re-`chunked`s the list on every recomposition.
+- **Coil**: cards now request an explicit 52 dp target size (`.size(px, px)`) instead of
+  decoding whatever the CDN serves. Coil 3 has no crossfade by default and its memory
+  cache is on, so nothing else was needed.
+
+Still open:
+
+- The debug sweep before/after is **within run-to-run noise** (±7 pp janky, ±100 ms
+  p90/p99): the focus-path changes are not provably a win on their own. The provable
+  wins are the idle frames (gone) and the release build (4x).
+- A release-with-old-code run was **not** measured, so how much of the release gain
+  belongs to the code changes is unknown.
+- Next steps: ship a release APK (or at least `debuggable=false`), add JankStats /
+  Macrobenchmark for a repeatable CI baseline, and consider reducing the per-row card
+  count on ~2 GB boxes or a lighter card (no Coil per card, fixed-height text) since
+  composing a row is what dominates DOWN navigation.
+- Measure the box at rest: with swap nearly full (`633 MB of 648 MB used`) and
+  `mediacodec` + `audioserver` + the engine streaming, the same `gfxinfo` run varies
+  ~20 % between tries.
 
 ## UNVERIFIED
 
@@ -128,3 +178,9 @@ walk; add JankStats or a Macrobenchmark for a repeatable baseline later.
 - The chip placeholder when the engine has no loaded track was not exercised on the
   box: the session always had metadata during validation.
 - Artwork loading with a cold Coil cache / slow network; only the warm path was seen.
+- The `size(px, px)` Coil hint was not isolated in a measurement; the UP-leg test
+  (cached artwork, same cost as DOWN) is what rules images out as the bottleneck.
+- `dumpsys gfxinfo` percentiles on this device report `4950ms` when zero frames were
+  rendered, which is what the idle run shows.
+- The release build was measured and spot-checked end-to-end only for browse, focus,
+  fullscreen play/pause and the position advancing (0:39 → 0:45 in 6 s).
