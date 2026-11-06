@@ -98,8 +98,9 @@ shared-UID engine (like the existing Morphe patches). Not attempted in this phas
 - Compose for TV 1.1.0 no longer ships `TvLazyRow` / `TvLazyColumn` (they were
   removed in favour of the regular Compose lazy layouts), so the shelves and the
   grid use `LazyRow` / `LazyColumn` from `androidx.compose.foundation` with
-  tv-material `Card` / `Text` / `IconButton`.
-- Focus is shown with the tv-material 1.06 card scale plus a lighter card surface; the
+  tv-material `Text` / `IconButton`; cards use a local `FocusCard` (`Box` +
+  `graphicsLayer` scale), not the tv-material `Card` — see Performance.
+- Focus is shown with a 1.06 scale plus a lighter card surface; the
   per-card animated elevation (`Modifier.shadow`) was removed — see Performance.
   `enter` on a browsable card (or on a shelf header) pushes a level, `enter` on a
   playable card calls `playFromMediaId`, and `back` pops the level stack.
@@ -109,78 +110,132 @@ shared-UID engine (like the existing Morphe patches). Not attempted in this phas
 ## Performance
 
 Measured on the Xiaomi MiTV box (`MiTV-AFMU0`, API 34, arm32, 3840x2160 overridden to
-1920x1080 @ 320 dpi, ~2 GB RAM) with the Apple Music engine playing. Method:
-`.pipeline/tv-app/perf/sweep.ps1` — cold start + 10 s load wait, `dumpsys gfxinfo
-com.anderson.applemusic.tv reset`, then 20x RIGHT, 20x LEFT, 10x DOWN, 10x UP at
-~120 ms per key, then `dumpsys gfxinfo` (same script before and after; 3 runs each).
-Raw: `.pipeline/tv-app/perf/before*.txt`, `after*.txt`, `release*.txt`.
+1920x1080 @ 320 dpi, ~2 GB RAM) with the Apple Music engine playing. **Every number
+below is a release build** (`assembleRelease`, signed with the Morphe cert).
+
+Two protocols, both in `.pipeline/tv-app/perf*/`:
+
+- **Full sweep** (`perf/sweep.ps1`, unchanged since round 1): cold start + 10 s load
+  wait, `dumpsys gfxinfo <pkg> reset`, 20x RIGHT, 20x LEFT, 10x DOWN, 10x UP at 120 ms
+  per key, then `dumpsys gfxinfo`. Raw: `perf2/sweep-*.txt`, `perf/after2.txt`.
+- **Isolated leg** (`perf2/leg.ps1`): one cold start per repeat, gfxinfo reset, 12x DOWN
+  (fresh rows, the cost being chased) or 16x RIGHT (same row, reference) at 200 ms per
+  key; 1 warm-up repeat is discarded and 5 are measured. Raw: `perf2/<tag>-*.txt`.
+
+`dumpsys gfxinfo` percentiles are **not** usable for small deltas here: identical
+repeated runs of the same APK swung DOWN p50 from 69 ms to 250 ms (the box hums at load
+4-5 with the engine streaming, and a missed vsync doubles a frame). What is stable
+(±5 %) is the per-frame *composition window* from
+`dumpsys gfxinfo framestats`: `AnimationStart -> PerformTraversalsStart`, i.e. the
+Choreographer frame callback. `perf2/parse.ps1` extracts it; a DOWN press onto an
+uncomposed shelf produces exactly one heavy frame (>50 ms) per press, RIGHT produces
+none, so `heavyFrames` and `heavyP50` are the comparable quantities.
+
+### A/B: what round 1 bought (release, full sweep, same script)
 
 | build | run | frames | janky | p50 | p90 | p99 |
 |---|---|---|---|---|---|---|
-| before (debug) | 1/2/3 | 93/83/94 | 96.8/94.0/89.4 % | 250/250/200 | 650/650/600 | 750/900/950 |
-| after (debug) | 1/2/3 | 87/99/96 | 97.7/87.9/88.5 % | 300/200/250 | 700/600/600 | 800/1000/700 |
-| after (**release**) | 1/2 | 166/164 | 68.1/68.3 % | **65/61** | **250/250** | **300/300** |
+| `642525f` parent | 1/2/3 | 148/148/151 | 72.97/75.00/72.85 % | 77/81/73 | 250/250/250 | 350/400/300 |
+| `b499536` round 1 | 1/2/3 | 180/170/165 | 63.33/64.71/63.64 % | 57/57/57 | 250/200/200 | 300/300/300 |
+| round 2 (this commit) | 1/2/3 | 167/140/164 | 49.10/55.71/50.61 % | 40/48/42 | 200/200/150 | 350/350/300 |
 
-What the changes did, and what they did not:
+So the round-1 changes (no animated shadows, scroll only when needed, playback in its
+own `StateFlow`) are a real release win, not only the idle frames: **-9.3 pp janky,
+p50 77 -> 57 ms, ~15 % more frames rendered** with the same key sweep. That closes the
+open question from round 1. Round 2 takes another **-13.0 pp janky and p50 57 -> 42 ms**.
+(The raw debug-vs-release comparison from round 1 still holds: a debuggable APK renders
+~4x slower, p50 250 ms / 96 % janky, which is why measurements moved to release.)
 
-- **Debuggable build is the dominant factor.** The same source as a release APK
-  (`assembleRelease`, unsigned then signed with the Morphe cert; `isMinifyEnabled =
-  false`) drops p50 from ~250 ms to ~61 ms and p99 from ~900 ms to ~300 ms — about 4x
-  shorter frames, and the same key sweep renders ~1.8x more frames (166 vs 93). The
-  debug APK is the wrong daily driver for this box.
-- **Playback poll was costing 2 janky frames/s while idle.** With 10 s of no input the
-  old build rendered 20 frames, all janky, p50 89 ms (100 %). After splitting
-  `playback` out of `TvUiState` into its own `StateFlow`, collecting it inside
-  `Header` / `NowPlayingScreen`, tick-ing only while the full player is open and
-  dropping the `getMetadata()` call from `refreshPlayback()`: **0 frames in 10 s** idle.
-  This does not show in the sweep table because the sweep is dominated by scrolling.
-- **Vertical navigation is ~10x the cost of horizontal** (debug, isolated legs):
-  `RIGHT x10` = 16 frames, p50 57 ms; `DOWN x10` = 25 frames, p50 700 ms; `UP x10` over
-  already-visited rows = 27 frames, p50 400 ms. `framestats` attributes 360-440 ms of
-  the DOWN frames to the *recomposition* phase (layout stays at 0.3 ms, GPU 8 ms), i.e.
-  composing a newly revealed row of ~7 cards. That is Compose composition cost on this
-  SoC, not shadows, not images (UP over cached artwork is just as slow).
-- **Animated shadows removed** (per-card `animateDpAsState` + `Modifier.shadow` in
-  `TvCard`, `SeeAllCard` and the player chip). Focus is now only the tv-material 1.06
-  card scale + `focusedContainerColor`. No measurable change in the debug sweep — the
-  shadow was not the bottleneck — but it removes an allocation and an animation per
-  focus change.
-- **Row scroll only when needed**: `LazyListState.needsScrollTo(index)` checks
-  `visibleItemsInfo` against `viewportStartOffset`/`viewportEndOffset`; a card that is
-  already fully visible triggers no `animateScrollToItem` at all (shelf and grid).
-- **`contentType` + stable keys** on the shelves (`"section"`, `"seeAll"`, `"card"`) and
-  the grid rows (`"gridRow"`, keyed by the row's first item id), and the grid no longer
-  re-`chunked`s the list on every recomposition.
-- **Coil**: cards now request an explicit 52 dp target size (`.size(px, px)`) instead of
-  decoding whatever the CDN serves. Coil 3 has no crossfade by default and its memory
-  cache is on, so nothing else was needed.
+### Where the DOWN cost actually is (framestats)
 
-Still open:
+Baseline `b499536`: DOWN x12 = 51 heavy frames per 60 presses, `heavyP50` **207 ms**;
+RIGHT x16 = 0 heavy frames, `compP50` 15-17 ms. So a fresh shelf costs ~200 ms of
+UI-thread frame callback, and only ~20 ms of it is the focus/animation work that RIGHT
+pays. `PerformTraversalsStart -> DrawStart` stays at ~0.1 ms, so it is composition
+(composing the row's ~7 cards), not layout. The gfxinfo "recomposition" attribution
+from round 1 was therefore right; the *shape* of the fix was wrong (the cost is not the
+`Card` wrapper or the text).
 
-- The debug sweep before/after is **within run-to-run noise** (±7 pp janky, ±100 ms
-  p90/p99): the focus-path changes are not provably a win on their own. The provable
-  wins are the idle frames (gone) and the release build (4x).
-- A release-with-old-code run was **not** measured, so how much of the release gain
-  belongs to the code changes is unknown.
-- Next steps: ship a release APK (or at least `debuggable=false`), add JankStats /
-  Macrobenchmark for a repeatable CI baseline, and consider reducing the per-row card
-  count on ~2 GB boxes or a lighter card (no Coil per card, fixed-height text) since
-  composing a row is what dominates DOWN navigation.
-- Measure the box at rest: with swap nearly full (`633 MB of 648 MB used`) and
-  `mediacodec` + `audioserver` + the engine streaming, the same `gfxinfo` run varies
-  ~20 % between tries.
+| step | change (measured one at a time, 5 reps each) | heavy frames / 60 DOWN | heavyP50 |
+|---|---|---|---|
+| 0 | `b499536` baseline | 52 | 202.1 ms |
+| 1 | Compose stability report + `@Immutable` (`Section`, `TvUiState`, `PlaybackSnapshot`) | 51 | 207.1 ms |
+| 2 | `FocusCard`: own `Box` + `graphicsLayer` scale + focused `background`, no tv-material `Card` (no ripple / border / glow nodes / DPad key handler) | 41 | 187.4 ms |
+| 3 | less text per card (title 1 line, subtitle or "Tocar" in a single `Text`) | 40 | 189.8 ms |
+| 4 | `LazyLayoutCacheWindow(ahead = 360.dp, behind = 360.dp)` on the shelf `LazyColumn` | **20** | **156.7 ms** |
 
-## UNVERIFIED
+DOWN p50 of the isolated leg over the same sessions (5 reps, median): baseline **85 ms**,
+final **77 ms**; RIGHT p50 48 -> 42 ms. The p50 moves less than `heavyFrames` because
+half of the DOWN presses now cost nothing extra and the remaining ones still pay ~157 ms
+on the press frame.
+
+What each hypothesis showed:
+
+- **(a) lighter card works, but only ~10 %.** tv-material `Card` is not the problem:
+  removing its surface/ripple/glow/key handling still leaves a ~187 ms row. It is kept
+  anyway (less machinery per focused card), look unchanged: focus scale + focused
+  container colour, `enter` still plays/navigates (`clickable` handles DPAD_CENTER).
+- **(b) pre-composition is the lever.** Compose 1.11.4 has **no** `beyondBoundsItemCount`
+  on `LazyColumn` (checked in `foundation-android-1.11.4`); the supported equivalent is
+  the experimental `LazyLayoutCacheWindow` (ahead/behind), applied to the shelf column.
+  It halves the number of expensive DOWN presses: a shelf that is already composed
+  within 360 dp does not have to be composed on the key press.
+- **(c) text/content is not the driver.** Cutting a `Text` node and a second title line
+  moved nothing (189.8 vs 187.4 ms). Fewer cards per row would scale the cost linearly,
+  but that changes the UI, so it was not done.
+- **(d) Coil `filterQuality` is not available at the pinned version.** Coil 3.5.0 has no
+  `filterQuality` on `ImageRequest`/`AsyncImage` (it lands in 3.6.x, which needs
+  `compileSdk 37`); there is also no crossfade API at 3.5.0, so cards already load
+  `size(52.dp)` + `ContentScale.Crop` with no fade. Nothing to measure here.
+
+### Compose compiler metrics / stability
+
+Enabled with the plugin DSL, which is the supported API for AGP 9.1 + Kotlin 2.4.21
+(no `-P plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination` needed):
+
+```kotlin
+composeCompiler {
+    metricsDestination = layout.buildDirectory.dir("compose-metrics")
+    reportsDestination = layout.buildDirectory.dir("compose-reports")
+}
+```
+
+Reports land in `tv-app/build/compose-reports/` (`tv-app-classes.txt`,
+`tv-app-composables.txt/.csv`) and the module JSON in `tv-app/build/compose-metrics/`.
+Findings: all **20/20 composables are restartable and skippable**; there is no
+non-remembered-lambda or `CardDefaults.scale` instability in `TvCard` / `SeeAllCard` /
+`BrowseItem`. What was unstable were the state holders: `PlaybackSnapshot` (a `Bitmap?`
+field), `Section` and `TvUiState` (`List`/`Map`/`Set` fields). They are all immutable by
+construction, so they now carry `@Immutable` — step 1 above shows this has **no
+measurable effect on DOWN** (202 -> 207 ms, noise; a second 3-rep session put the
+annotation build at 216 ms against a 215 ms baseline), which is expected: a DOWN composes
+new cards, it does not recompose stable ones. `LevelGrid(items: List<BrowseItem>?)` is
+still `Uncertain`; fixing it needs `kotlinx-collections-immutable`, and the grid is not
+on the focus path.
+
+### Still open
+
+- DOWN is still ~1.8x the cost of RIGHT (p50 77 vs 42 ms) and p99 350 ms has not moved:
+  ~157 ms per newly revealed shelf is still paid on the key press. Going further means
+  pre-composing rows outside the key press (a `Column` with `verticalScroll` would keep
+  every shelf composed at the cost of a heavier cold start) or a cheaper card.
+- The cold-start cost of the 360 dp cache window was not measured (it composes ~2 extra
+  shelves at launch).
+- `UP`/`LEFT` legs were not re-measured in round 2 (the sweep covers them end-to-end).
+- JankStats / Macrobenchmark are still the missing repeatable baseline; the box at 2 GB
+  with a full swap (`633 MB of 648 MB`) makes `gfxinfo` runs vary ~20 %.
+
+### UNVERIFIED
 
 - Play/pause/seek were validated only after the account's other device stopped
   streaming (Apple Music showed "Mais de um dispositivo…" and the session stayed
   `NONE` until then). Concurrent-device behaviour is outside the app's control.
-- The chip placeholder when the engine has no loaded track was not exercised on the
-  box: the session always had metadata during validation.
+- The chip placeholder when the engine has no loaded track was not exercised on the box:
+  the session always had metadata during validation.
 - Artwork loading with a cold Coil cache / slow network; only the warm path was seen.
-- The `size(px, px)` Coil hint was not isolated in a measurement; the UP-leg test
-  (cached artwork, same cost as DOWN) is what rules images out as the bottleneck.
 - `dumpsys gfxinfo` percentiles on this device report `4950ms` when zero frames were
-  rendered, which is what the idle run shows.
-- The release build was measured and spot-checked end-to-end only for browse, focus,
-  fullscreen play/pause and the position advancing (0:39 → 0:45 in 6 s).
+  rendered, which is what an idle run shows.
+- The `@Immutable` annotations were verified by the compiler report, not by a perf gain:
+  no effect on the measured DOWN leg (as expected, and it is not claimed as a win).
+- The cache window is an `@ExperimentalFoundationApi`; it was measured on this device
+  and Compose 1.11.4 only.

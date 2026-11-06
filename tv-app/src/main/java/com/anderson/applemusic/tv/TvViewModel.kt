@@ -2,6 +2,7 @@ package com.anderson.applemusic.tv
 
 import android.app.Application
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -19,6 +20,10 @@ enum class ConnectionPhase { CONNECTING, CONNECTED, FAILED }
 data class TvTab(val id: String, val title: String)
 
 /** A horizontal shelf of the tab root, or a single "play" shortcut. */
+// @Immutable: `items` is a plain List, which the compiler cannot prove immutable, so
+// without the annotation Section (and every SectionRow param) is unstable. The list is
+// only ever replaced by a copy, never mutated in place.
+@Immutable
 data class Section(
     val id: String,
     val title: String,
@@ -33,6 +38,8 @@ data class LevelNode(val id: String, val title: String)
 /** Transient "seeked by N seconds" hint shown by the full player. */
 data class SeekFeedback(val deltaMs: Long, val positionMs: Long)
 
+// @Immutable: same reason as Section — all collections are replaced through copy().
+@Immutable
 data class TvUiState(
     val phase: ConnectionPhase = ConnectionPhase.CONNECTING,
     val error: String? = null,

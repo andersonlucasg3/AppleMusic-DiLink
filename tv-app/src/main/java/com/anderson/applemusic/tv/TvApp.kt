@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalTvMaterial3Api::class)
+@file:OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 
 package com.anderson.applemusic.tv
 
@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +55,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -70,8 +73,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.Card
-import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
@@ -353,7 +354,14 @@ private fun PlayerChip(
 @Composable
 private fun TabRoot(state: TvUiState, viewModel: TvViewModel) {
     val visibleSections = state.sections.filter { it.loading || it.items.isNotEmpty() }
+    // Keep a shelf composed while it is up to 360 dp outside the viewport: without a
+    // cache window a row that scrolls out is disposed and the next DOWN (or UP) pays
+    // its full ~7-card composition again. Compose 1.11 has no beyondBoundsItemCount.
+    val columnState = rememberLazyListState(
+        cacheWindow = LazyLayoutCacheWindow(ahead = 360.dp, behind = 360.dp),
+    )
     LazyColumn(
+        state = columnState,
         modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
         contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
@@ -441,20 +449,7 @@ private fun LazyListState.needsScrollTo(index: Int): Boolean {
 /** Focusable "open this shelf as a grid" entry at the start of every row. */
 @Composable
 private fun SeeAllCard(count: Int, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier
-            .width(132.dp)
-            .height(112.dp),
-        shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-        colors = CardDefaults.colors(
-            containerColor = CardColor,
-            contentColor = TextPrimary,
-            focusedContainerColor = CardColorFocused,
-            focusedContentColor = TextPrimary,
-        ),
-        scale = CardDefaults.scale(1f, 1.06f, 1f),
-    ) {
+    FocusCard(onClick = onClick, width = 132.dp) {
         Column(
             modifier = Modifier.fillMaxSize().padding(12.dp),
             verticalArrangement = Arrangement.Center,
@@ -534,6 +529,47 @@ private fun LevelGrid(
     }
 }
 
+/**
+ * The focusable surface used by every card.
+ *
+ * tv-material's `Card` brings a clickable surface with ripple indication, a border node,
+ * a glow node and its own D-pad key handler. Dropping it is a ~10 % win on the
+ * composition of a fresh shelf (README, Performance), not the main lever, but it is
+ * less machinery per card. Same look as before — focus scale + focused container
+ * colour — with a [graphicsLayer] scale (draw phase, no recomposition) and a
+ * [clickable] with no indication.
+ */
+@Composable
+private fun FocusCard(
+    onClick: () -> Unit,
+    width: Dp = 200.dp,
+    height: Dp = 112.dp,
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit = {},
+    content: @Composable () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
+    Box(
+        modifier = modifier
+            .width(width)
+            .height(height)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (focused) CardColorFocused else CardColor)
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .clickable(interactionSource = null, indication = null) { onClick() },
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun TvCard(
     item: BrowseItem,
@@ -543,20 +579,12 @@ private fun TvCard(
     onFocused: () -> Unit = {},
     onClick: () -> Unit,
 ) {
-    Card(
+    FocusCard(
         onClick = onClick,
-        modifier = modifier
-            .width(width)
-            .height(height)
-            .onFocusChanged { if (it.isFocused) onFocused() },
-        shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-        colors = CardDefaults.colors(
-            containerColor = CardColor,
-            contentColor = TextPrimary,
-            focusedContainerColor = CardColorFocused,
-            focusedContentColor = TextPrimary,
-        ),
-        scale = CardDefaults.scale(1f, 1.06f, 1f),
+        width = width,
+        height = height,
+        modifier = modifier,
+        onFocused = onFocused,
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(10.dp),
@@ -589,19 +617,21 @@ private fun TvCard(
                     color = TextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (item.subtitle.isNotEmpty()) {
+                // One secondary line only: the subtitle, or the "Tocar" hint for a
+                // playable-only item (they never show together). Two Text nodes per
+                // card instead of up to three keeps the row composition cheaper.
+                val secondary = item.subtitle.ifEmpty { if (item.playable) "Tocar" else "" }
+                if (secondary.isNotEmpty()) {
                     Text(
-                        text = item.subtitle,
-                        color = TextSecondary,
+                        text = secondary,
+                        color = if (item.subtitle.isEmpty()) Accent else TextSecondary,
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                } else if (item.playable) {
-                    Text("Tocar", color = Accent, fontSize = 11.sp)
                 }
             }
         }

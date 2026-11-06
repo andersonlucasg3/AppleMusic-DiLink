@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.runtime.Immutable
 
 /** One entry of the Apple Music browse tree. */
 data class BrowseItem(
@@ -25,6 +26,11 @@ data class BrowseItem(
 )
 
 /** What the Apple Music media session is currently doing. */
+// @Immutable: every field is replaced, never mutated — the artwork bitmap comes from
+// getBitmap() and is never written after it is handed over. Without the annotation the
+// Bitmap field makes the class unstable and forces PlayerChip / NowPlayingScreen to
+// recompose on every playback snapshot.
+@Immutable
 data class PlaybackSnapshot(
     val hasSession: Boolean = false,
     val playing: Boolean = false,
