@@ -1,4 +1,4 @@
-package com.anderson.applemusic.tv
+package com.anderson.applemusic.core
 
 import android.content.ComponentName
 import android.content.Context
@@ -13,34 +13,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import androidx.compose.runtime.Immutable
-
-/** One entry of the Apple Music browse tree. */
-data class BrowseItem(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val browsable: Boolean,
-    val playable: Boolean,
-    val artworkUri: String? = null,
-)
-
-/** What the Apple Music media session is currently doing. */
-// @Immutable: every field is replaced, never mutated — the artwork bitmap comes from
-// getBitmap() and is never written after it is handed over. Without the annotation the
-// Bitmap field makes the class unstable and forces PlayerChip / NowPlayingScreen to
-// recompose on every playback snapshot.
-@Immutable
-data class PlaybackSnapshot(
-    val hasSession: Boolean = false,
-    val playing: Boolean = false,
-    val positionMs: Long = 0L,
-    val durationMs: Long = 0L,
-    val title: String = "",
-    val artist: String = "",
-    val album: String = "",
-    val artwork: Bitmap? = null,
-)
 
 /**
  * Thin wrapper around the framework [MediaBrowser] / [MediaController] pair.
@@ -48,6 +20,10 @@ data class PlaybackSnapshot(
  * The patched Apple Music engine exposes its Android Auto browse tree under
  * `__AUTO_ROOT__`; the root returned by [MediaBrowser.getRoot] only holds
  * `ROOT_MEDIA_ITEM`, which is useless for browsing.
+ *
+ * UI-agnostic: no Compose UI, no resources. The consuming app must declare
+ * `android:sharedUserId="com.apple.android"`, be signed with the Morphe certificate
+ * and add the `<queries>` for `com.apple.android.music` (see core/README.md).
  */
 @Suppress("DEPRECATION")
 class MediaBrowserClient(context: Context) {
@@ -73,6 +49,14 @@ class MediaBrowserClient(context: Context) {
 
     private var lastState: PlaybackState? = null
     private var lastMetadata: MediaMetadata? = null
+    private var lastCustomActions: List<CustomAction> = emptyList()
+
+    /**
+     * Session custom actions of the last [PlaybackState], e.g. "Favorito",
+     * "Adicionar à Biblioteca" and "Criar Estação". Empty until the engine publishes
+     * a playback state.
+     */
+    val customActions: List<CustomAction> get() = lastCustomActions
 
     private val connectionCallback = object : MediaBrowser.ConnectionCallback() {
         override fun onConnected() {
@@ -122,6 +106,7 @@ class MediaBrowserClient(context: Context) {
         controller = null
         subscriptions.clear()
         childrenCache.clear()
+        lastCustomActions = emptyList()
         runCatching { browser?.disconnect() }
         browser = null
     }
@@ -213,6 +198,24 @@ class MediaBrowserClient(context: Context) {
     }
 
     /**
+     * Sends a session action published by the engine, e.g. the `action` of a
+     * [CustomAction] from [customActions] ("Criar Estação", "Favorito", …).
+     */
+    fun sendCustomAction(actionId: String) {
+        val current = controller
+        if (current == null) {
+            Log.e(TAG, "sendCustomAction without a MediaController: $actionId")
+            return
+        }
+        Log.i(TAG, "sendCustomAction $actionId")
+        try {
+            current.transportControls.sendCustomAction(actionId, null)
+        } catch (t: Throwable) {
+            Log.e(TAG, "sendCustomAction failed: $actionId", t)
+        }
+    }
+
+    /**
      * Re-reads the session position (the position advances while playing). Metadata is
      * deliberately not touched here: `MediaController.getMetadata()` marshals the album
      * art bitmap across a binder transaction, so it is only read from the callbacks.
@@ -276,6 +279,14 @@ class MediaBrowserClient(context: Context) {
                 state.state == PlaybackState.STATE_BUFFERING ||
                 state.state == PlaybackState.STATE_CONNECTING
             )
+        val actions = state?.customActions.orEmpty().map { it.toCustomAction() }
+        if (actions != lastCustomActions) {
+            lastCustomActions = actions
+            Log.i(
+                TAG,
+                "customActions=" + actions.joinToString { "${it.action} (\"${it.title}\", icon=${it.iconResId})" },
+            )
+        }
         listener?.onPlayback(
             PlaybackSnapshot(
                 hasSession = state != null || metadata != null,
@@ -287,6 +298,7 @@ class MediaBrowserClient(context: Context) {
                 album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
                 artwork = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                     ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART),
+                customActions = actions,
             ),
         )
     }
@@ -301,6 +313,22 @@ class MediaBrowserClient(context: Context) {
             playable = isPlayable,
             artworkUri = description?.iconUri?.toString(),
         )
+    }
+
+    private fun PlaybackState.CustomAction.toCustomAction(): CustomAction = CustomAction(
+        action = action.orEmpty(),
+        title = name?.toString().orEmpty(),
+        iconResId = icon,
+        extras = extras.toStringMap(),
+    )
+
+    private fun Bundle?.toStringMap(): Map<String, String> {
+        if (this == null) return emptyMap()
+        val flat = LinkedHashMap<String, String>(size())
+        for (key in keySet()) {
+            flat[key] = get(key)?.toString().orEmpty()
+        }
+        return flat
     }
 
     companion object {

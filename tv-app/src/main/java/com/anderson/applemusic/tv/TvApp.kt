@@ -79,6 +79,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import com.anderson.applemusic.core.BrowseItem
+import com.anderson.applemusic.core.PlaybackSnapshot
+import com.anderson.applemusic.core.Section
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs

@@ -29,6 +29,9 @@ settings {
     }
 }
 
+// UI-agnostic MediaBrowser client and domain models shared by the TV and car apps.
+include(":core")
+
 // Standalone Android TV client that talks to the patched Apple Music engine
 // through the framework MediaBrowser/MediaController API.
 include(":tv-app")

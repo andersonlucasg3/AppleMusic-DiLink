@@ -5,6 +5,10 @@ import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.anderson.applemusic.core.BrowseItem
+import com.anderson.applemusic.core.MediaBrowserClient
+import com.anderson.applemusic.core.PlaybackSnapshot
+import com.anderson.applemusic.core.Section
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,19 +22,6 @@ enum class ConnectionPhase { CONNECTING, CONNECTED, FAILED }
 
 /** A top level tab (Início / Rádio / Biblioteca). */
 data class TvTab(val id: String, val title: String)
-
-/** A horizontal shelf of the tab root, or a single "play" shortcut. */
-// @Immutable: `items` is a plain List, which the compiler cannot prove immutable, so
-// without the annotation Section (and every SectionRow param) is unstable. The list is
-// only ever replaced by a copy, never mutated in place.
-@Immutable
-data class Section(
-    val id: String,
-    val title: String,
-    val items: List<BrowseItem> = emptyList(),
-    val loading: Boolean = true,
-    val direct: Boolean = false,
-)
 
 /** One entry of the drill-down stack. */
 data class LevelNode(val id: String, val title: String)

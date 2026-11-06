@@ -10,6 +10,16 @@ private APIs). It browses the Android Auto tree exposed under `__AUTO_ROOT__`
 The app declares `android:sharedUserId="com.apple.android"` and must be signed with
 the Morphe certificate, otherwise the media service refuses the connection.
 
+## Project layout
+
+- `:core` — shared, UI-agnostic library (`com.anderson.applemusic.core`): the
+  `MediaBrowser`/`MediaController` client, the browse/playback models and the session
+  custom actions. No Compose UI, no resources; `:car-app` will reuse it — see
+  [core/README.md](../core/README.md).
+- `:tv-app` — this app only: Compose for TV UI (`TvApp.kt`), the screen state holder
+  (`TvViewModel`), theme and resources. It depends on `project(":core")`.
+- `:patches` — the Morphe patch bundle of the Apple Music engine.
+
 ## Build
 
 ```powershell
@@ -106,6 +116,10 @@ shared-UID engine (like the existing Morphe patches). Not attempted in this phas
   playable card calls `playFromMediaId`, and `back` pops the level stack.
 - The 5th card peeking at the right edge of a shelf is intentional (lazy row with a
   hint of the next item), not a clipping bug.
+- The engine's session custom actions (Favorito, Aleatório, Repetir, Reprodução
+  Automática, Adicionar à Biblioteca, Criar Estação) are exposed by `:core`
+  (`PlaybackSnapshot.customActions`, `MediaBrowserClient.sendCustomAction`) but this
+  app still renders none of them: the UI is unchanged.
 
 ## Performance
 
