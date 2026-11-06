@@ -6,7 +6,7 @@ Bundle de patches [Morphe](https://github.com/MorpheApp) para o **Apple Music 7.
 Objetivo final do bundle: destravar o landscape, rebaixar o `minSdk` de 30 para 28/29 e rodar sem
 GMS/Play Integrity. A partir da 1.3.0 o mesmo bundle também gera um APK para **Android TV**.
 
-> **Estado atual (1.3.0):** o app **instala, abre, loga e reproduz no DiLink** (API 29, landscape).
+> **Estado atual (1.4.0):** o app **instala, abre, loga e reproduz no DiLink** (API 29, landscape).
 > O login passa por e-mail, senha, 2FA e pelo `AMSIDMSAuthenticationCompleteAction`; o player toca
 > normalmente. Os assets JS da Apple são transpilados para Chrome 74 no build e servidos pelo APK;
 > o Anisette/ADI nativo é substituído por OTP local (GrandSlam V3 e Store AMD V1.5) com uma
