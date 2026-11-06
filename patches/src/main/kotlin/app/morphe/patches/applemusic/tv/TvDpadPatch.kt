@@ -118,6 +118,19 @@ private val CONTENT_HOSTS = listOf(
 )
 private const val CONTENT_HOST_ID = "tab_navigation_host"
 
+/**
+ * The settings overflow (⋮) is a Compose node inside a ComposeView the D-pad never enters: the
+ * ComposeView is not focusable at View level, so the FocusFinder skips its whole subtree. Making
+ * the host focusable plus `afterDescendants` lets the focus reach the Compose view instead of
+ * stopping on the wrapper itself.
+ */
+private val APP_BAR_HOSTS = listOf(
+    "res/layout/fragment_listen_now.xml",
+    "res/layout/fragment_landing_search.xml",
+)
+private const val APP_BAR_HOST_ID = "floating_app_bar_container"
+private const val DESCENDANT_FOCUSABILITY = "android:descendantFocusability"
+
 @Suppress("unused")
 internal val tvDpadPatch = resourcePatch(
     name = "TV: D-pad focus",
@@ -201,6 +214,14 @@ internal val tvDpadPatch = resourcePatch(
                 host.setAttribute("android:paddingTop", "?attr/actionBarSize")
                 host.setAttribute("android:paddingBottom", "80dp") // miniplayer_height (64dp) + 16dp gap
                 host.setAttribute("android:clipToPadding", "false")
+            }
+        }
+        for (path in APP_BAR_HOSTS) {
+            document(path).use { document ->
+                val host = findById(document.documentElement, APP_BAR_HOST_ID)
+                    ?: error("$APP_BAR_HOST_ID not found in $path")
+                host.setAttribute(FOCUSABLE, "true")
+                host.setAttribute(DESCENDANT_FOCUSABILITY, "afterDescendants")
             }
         }
     }
