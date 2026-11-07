@@ -68,6 +68,12 @@ the bottom; `screenOrientation="sensorLandscape"`.
 - **Entrar na conta** — explicit intent to
   `com.apple.android.music/.common.MainActivity` (the engine is hidden from the
   launcher). Shown in the top bar and in the failure pane when the engine is installed.
+- **Busca** — the magnifier in the top bar opens the catalogue search (`:core`
+  `SearchClient`, same token/endpoint as `:tv-app`): text field with the system
+  keyboard, results grouped by Músicas / Álbuns / Artistas / Playlists with cover,
+  title and artist. "Limpar" clears the field, "App original" opens the engine's own
+  search screen, back closes the overlay. Tapping a song/album/playlist plays it through
+  `playFromMediaId`; an artist falls back to the engine's `MEDIA_SEARCH`.
 - Error states: "Apple Music não instalado neste dispositivo" and the core's
   "serviço indisponível" messages, each with icon, explanation and "Tentar de novo".
 
@@ -152,8 +158,11 @@ phone and on a 1080p TV at the head-unit resolution. Still to check there:
 
 ## Known limitations
 
-- No search: the Android Auto browse tree exposes no search surface (same as `:tv-app`).
+- Search needs the engine's developer token from its DataStore: after a clean engine
+  install (no signed-in account) the screen offers only "Abrir busca do app original".
 - Two levels by design; deeper nodes are not reachable from this UI.
+- Search playback is per item: a result starts the item (song / album / playlist); the
+  queue after it is whatever the engine builds from that id.
 - Some engine sessions publish `PLAYING` without `position`/`duration` (or stay
   `BUFFERING` with `speed=0.0`); the seek bar then has nothing to seek and
   `togglePlayPause` can only resume. Validated on the phone after the engine reported

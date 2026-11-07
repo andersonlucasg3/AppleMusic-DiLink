@@ -9,7 +9,7 @@ no device em 07/11/2026 (TV `100.74.105.35` API 34 arm32, carro `100.74.124.38` 
 |---|---|---|---|
 | 1 | Intent/deep link para a busca do engine | **funciona** (abre a UI; sem termo) | 30 min |
 | 2 | Reflexão nas classes do engine | **inviável** (morre na inicialização) | — |
-| 3 | API direta `amp-api` com o token do engine | **PoC real, 200 OK nos 2 devices** | 1-2 dias |
+| 3 | API direta `amp-api` com o token do engine | **implementado nos companions** | 1-2 dias |
 | 4 | Filtro local do que já está carregado | trivial, entrega pouco | ~1 h |
 
 ## 1. Intent / deep link — funciona, mas sem termo
@@ -112,9 +112,43 @@ compartilhado e chamando `/v1/catalog/{sf}/search`, com a UI de resultados no pa
 Esforço: 1-2 dias (token+HTTP+parser ~meio dia; tela, foco D-pad, paginação e tratamento de erro o
 resto). Fallback de 30 min: botão "Buscar no Apple Music" que dispara o deep link do caminho 1.
 
+## Implementado (07/11/2026) — caminho 3 nos dois companions
+
+`core/SearchClient.kt` + `core/SearchResult.kt` (token → AES/GCM → `HttpURLConnection` →
+`org.json`, sem lib nova), tela de busca em `:tv-app` e `:car-app` e o toque em um
+resultado. Medições reais (termo `daft punk`, storefront `br`):
+
+- **Token**: lido e decifrado nos devices testados — HTTP 200, 27 543 bytes com
+  `types=songs,albums,artists,playlists&limit=8`. O parse do `preferences_pb` continua
+  dependente do layout `entry{1:key,2:{5:value}}`; qualquer falha (arquivo, alias, cipher)
+  vira `TokenUnavailable` e a tela oferece o deep link.
+- **`playFromMediaId` funciona com o id de catálogo puro** (`617154366` → "Get Lucky",
+  `696884422` → álbum "Homework" desde a faixa 1, `pl.7465…` → playlist). Caminho no
+  engine: `MediaSessionCallbacks.onSetMediaItems` (`player/C3928e0.java:55-89`) pede um
+  provider ao `PlaybackMediaIdHandler`; o provider do Android Auto
+  (`p032b7/C3124a.java:154`) só reconhece ids `__AUTO_ROOT__/…`, devolve `null`, e o engine
+  cai no `StorePlaybackQueueItemProvider(mediaId)` — por isso o id cru basta. Evidência:
+  `playFromMediaId <id>` no logcat + metadados mudando no `dumpsys media_session`, na TV
+  (API 34) e no S24 (API 36).
+- **`MEDIA_SEARCH`** (fallback): a intent chega no engine (`START … act=
+  android.intent.action.MEDIA_SEARCH … cmp=com.apple.android.music/.common.MainActivity
+  (has extras)`) e abre a busca dele; o play depende do estado da conta — nos testes
+  apareceu o diálogo "Mais de um dispositivo está tentando reproduzir músicas" (mesma
+  conta ativa em outro device), que bloqueou o play. Resultados de **artista** não têm id
+  reproduzível (`mediaIdCandidates()` vazio) e seguem direto por esse caminho.
+- UI: TV com `BasicTextField` + IME do sistema e D-pad (o campo consome DOWN/ENTER para
+  entregar o foco à lista), carro com teclado por toque; grupos
+  Músicas/Álbuns/Artistas/Playlists, capa/título/artista, "Limpar", `back` fecha,
+  "Abrir busca do app original" como fallback.
+- Capturas: `.pipeline/search-tv-*.png`, `.pipeline/search-phone-*.png`,
+  `.pipeline/search-car-results.png`.
+
 ## Não verificado
 - deep link com o engine **parado** (cold start) — não testei para não interromper a reprodução;
-- `MEDIA_SEARCH` (busca+toca) no device;
-- expiração/renovação do developer token e o 401 correspondente;
-- se a Apple exige `Music-User-Token` para buscar na **biblioteca**; e o parsing do protobuf depende
-  do layout atual do DataStore (`entry{1:key,2:{5:value}}`).
+- expiração/renovação do developer token e o 401 correspondente (o código relê o arquivo
+  uma vez e devolve erro claro, mas não forcei um token expirado);
+- se a Apple exige `Music-User-Token` para buscar na **biblioteca**;
+- tocar um resultado **com o engine sem nenhuma faixa carregada**: os testes sempre
+  partiram de uma sessão já carregada;
+- o **head unit BYD** (`100.74.124.38`) ficou offline no meio da validação;
+- o parsing do protobuf depende do layout atual do DataStore (`entry{1:key,2:{5:value}}`).

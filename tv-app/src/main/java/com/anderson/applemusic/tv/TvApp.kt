@@ -68,7 +68,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -205,7 +204,16 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (state.searchOpen) {
-                            SearchUnavailable()
+                            SearchScreen(
+                                query = state.searchQuery,
+                                busy = state.searchBusy,
+                                results = state.searchResults,
+                                error = state.searchError,
+                                onQueryChange = viewModel::setSearchQuery,
+                                onResult = viewModel::playSearchResult,
+                                onOpenEngineSearch = viewModel::openEngineSearch,
+                                onRetry = viewModel::retrySearch,
+                            )
                         } else {
                             when (state.phase) {
                                 ConnectionPhase.CONNECTING -> CenteredMessage("Conectando ao Apple Music…")
@@ -1377,33 +1385,6 @@ private fun artworkBackground(artwork: Bitmap?): List<Color> {
         (b * multiplier).coerceIn(0.015f, 0.42f),
     )
     return listOf(tone(0.62f), tone(0.26f), Background)
-}
-
-@Composable
-private fun SearchUnavailable() {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(48.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = "Busca indisponível via engine",
-            color = TextPrimary,
-            fontSize = 26.sp,
-            lineHeight = 32.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "O catálogo Android Auto do Apple Music só expõe Início, Rádio e " +
-                "Biblioteca pelo MediaBrowser. Busca exigiria a API da Apple/UID compartilhado.",
-            color = TextSecondary,
-            fontSize = 15.sp,
-            lineHeight = 21.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(max = 760.dp),
-        )
-    }
 }
 
 @Composable

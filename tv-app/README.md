@@ -128,10 +128,23 @@ Player artwork comes from the session's `METADATA_KEY_ALBUM_ART` bitmap.
 
 ## Search
 
-The magnifier opens a "Busca indisponível via engine" screen. The legacy MediaBrowser
-tree only exposes the Android Auto sections and has no search surface. Implementing it
-later needs either the Apple Music media API directly or an extension inside the
-shared-UID engine (like the existing Morphe patches). Not attempted in this phase.
+The magnifier opens the catalogue search (`:core` `SearchClient`): the companion reads
+the engine's developer token (same UID), calls
+`GET https://amp-api.music.apple.com/v1/catalog/{storefront}/search` and lists the hits
+grouped by Músicas / Álbuns / Artistas / Playlists with cover, title and artist.
+Storefront comes from `Locale` (fallback `us`); the token is cached in memory only and
+re-read when the API answers 401. See `analysis/search-feasibility.md`.
+
+D-pad: the field requests focus and raises the system IME on focus; it swallows DOWN
+(hands the D-pad to the button row, then to the results) and ENTER (raises the IME
+again), while LEFT/RIGHT still move the caret. `Teclado` / `Limpar` /
+`Abrir busca do app original` sit under the field; `back` closes the search.
+
+ENTER on a result calls `playFromMediaId` with the catalogue id — that is the id the
+engine's store provider accepts (see `SearchResult.mediaIdCandidates`). An artist has
+nothing to play, so it goes straight to the engine's own `MEDIA_SEARCH`. When the token
+cannot be read or decrypted the screen says so and offers "Abrir busca do app original"
+(`VIEW https://music.apple.com/search`).
 
 ## Notes
 

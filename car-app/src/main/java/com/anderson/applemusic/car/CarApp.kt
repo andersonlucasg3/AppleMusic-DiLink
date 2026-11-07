@@ -109,6 +109,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
     BackHandler(enabled = state.stack.isNotEmpty() && !state.nowPlayingOpen && state.itemMenu == null) {
         viewModel.back()
     }
+    BackHandler(enabled = state.searchOpen && !state.nowPlayingOpen) { viewModel.closeSearch() }
     BackHandler(enabled = state.itemMenu != null) { viewModel.closeItemMenu() }
     BackHandler(enabled = state.nowPlayingOpen) {
         if (state.actionsOpen) viewModel.closeActions() else viewModel.closeNowPlaying()
@@ -122,7 +123,9 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                 tabs = state.tabs,
                 selected = state.selectedTab,
                 compact = compact,
+                searchOpen = state.searchOpen,
                 onSelect = viewModel::selectTab,
+                onSearch = viewModel::openSearch,
                 onAccount = viewModel::openAccount,
                 onCheckUpdates = { updates.check(force = true) },
             )
@@ -136,7 +139,18 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                 )
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (state.phase) {
+                if (state.searchOpen) {
+                    CarSearchScreen(
+                        query = state.searchQuery,
+                        busy = state.searchBusy,
+                        results = state.searchResults,
+                        error = state.searchError,
+                        onQueryChange = viewModel::setSearchQuery,
+                        onResult = viewModel::playSearchResult,
+                        onOpenEngineSearch = viewModel::openEngineSearch,
+                        onRetry = viewModel::retrySearch,
+                    )
+                } else when (state.phase) {
                     ConnectionPhase.CONNECTING -> CenteredMessage("Conectando ao Apple Music…")
                     ConnectionPhase.FAILED -> ErrorPane(
                         message = state.error,
@@ -240,7 +254,9 @@ private fun TopBar(
     tabs: List<CarTab>,
     selected: Int,
     compact: Boolean,
+    searchOpen: Boolean,
     onSelect: (Int) -> Unit,
+    onSearch: () -> Unit,
     onAccount: () -> Unit,
     onCheckUpdates: () -> Unit,
 ) {
@@ -269,8 +285,31 @@ private fun TopBar(
             )
         }
         Spacer(Modifier.weight(1f))
+        SearchButton(selected = searchOpen, onClick = onSearch)
         UpdatesButton(onClick = onCheckUpdates, compact = compact)
         AccountButton(onClick = onAccount, compact = compact)
+    }
+}
+
+/** Magnifier in the top bar: opens the catalogue search over the browse tree. */
+@Composable
+private fun SearchButton(selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(if (pressed || selected) CardColorPressed else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_search),
+            contentDescription = "Busca",
+            modifier = Modifier.size(20.dp),
+            tint = if (selected) Accent else TextSecondary,
+        )
     }
 }
 
