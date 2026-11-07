@@ -100,3 +100,17 @@ Documento de planejamento. O produto são **apps próprios** que usam o Apple Mu
 - `tv-app` release: janky ~50%, p50 40–48 ms; linha nova ~157 ms (era 202 ms).
 - Medição confiável: frame pesado por linha nova via `gfxinfo framestats`
   (janela `AnimationStart→PerformTraversalsStart`), não os percentis do `gfxinfo` agregado.
+
+## Decisão: APK único por device (encerrado — não viável)
+
+Investigado em três fases (`single-apk/`): o empacotamento funciona (dex extra + activity no
+manifest + `install -r` preserva a conta), mas o **engine foi minerado pelo R8** — por exemplo
+`kotlin.Unit.INSTANCE` virou o static field `a`. Com o nosso dex na frente, o engine perde a
+própria cópia e morre no `FirebaseInitProvider` (`NoSuchFieldError: No field a ...`); com o dex do
+engine na frente, é a UI nova que morre (`ComponentActivity.<init>`). Recompilar contra as versões
+do engine não resolve: qualquer classe tocada pelo R8 colide.
+
+Conclusão: **manter dois APKs** (engine + companion) assinados com o mesmo cert. Para um APK único
+seria necessário compilar a UI dentro do pipeline R8 do engine (volta a ser patch/extensão) ou um
+engine sem minificação — ambos piores que a arquitetura atual.
+
