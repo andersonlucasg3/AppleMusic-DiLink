@@ -46,27 +46,33 @@ import com.anderson.applemusic.core.update.UpdateUiState
 @Composable
 internal fun UpdatesChip(onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "updatesChipScale")
+    val scale by animateFloatAsState(
+        if (focused) 1.04f else 1f,
+        animationSpec = FocusScaleSpec,
+        label = "updatesChipScale",
+    )
     Box(
         modifier = Modifier
             .scale(scale)
-            .height(38.dp)
+            .height(36.dp)
             .clip(RoundedCornerShape(50))
-            .background(if (focused) Color.White else SurfaceFocused)
+            // Ghost chip: it stays in the header without competing with the tabs/player.
+            .background(if (focused) SurfaceFocused else Color.Transparent)
             .border(
                 BorderStroke(2.dp, if (focused) Color.White else Color.Transparent),
                 RoundedCornerShape(50),
             )
             .onFocusChanged { focused = it.isFocused }
             .clickable { onClick() }
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = "Verificar atualizações",
-            color = if (focused) Color.Black else TextPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
+            color = if (focused) TextPrimary else TextSecondary,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Normal,
             maxLines = 1,
         )
     }
@@ -200,7 +206,8 @@ private fun Title(text: String) {
     Text(
         text = text,
         color = TextPrimary,
-        fontSize = 22.sp,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
         fontWeight = FontWeight.Bold,
         modifier = Modifier.fillMaxWidth(),
     )
@@ -212,7 +219,8 @@ private fun Body(text: String) {
     Text(
         text = text,
         color = TextSecondary,
-        fontSize = 14.sp,
+        fontSize = 15.sp,
+        lineHeight = 21.sp,
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -246,7 +254,11 @@ private fun DialogButton(
 ) {
     val focus = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "dialogButtonScale")
+    val scale by animateFloatAsState(
+        if (focused) 1.04f else 1f,
+        animationSpec = FocusScaleSpec,
+        label = "dialogButtonScale",
+    )
     if (autoFocus) {
         LaunchedEffect(Unit) {
             withFrameNanos { }
@@ -273,6 +285,7 @@ private fun DialogButton(
             text = text,
             color = Color.White,
             fontSize = 15.sp,
+            lineHeight = 19.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
         )
