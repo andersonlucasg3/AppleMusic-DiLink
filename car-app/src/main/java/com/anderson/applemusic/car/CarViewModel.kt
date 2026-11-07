@@ -3,11 +3,13 @@ package com.anderson.applemusic.car
 import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.anderson.applemusic.core.BrowseItem
+import com.anderson.applemusic.core.CustomAction
 import com.anderson.applemusic.core.MediaBrowserClient
 import com.anderson.applemusic.core.PlaybackSnapshot
 import com.anderson.applemusic.core.Section
@@ -45,6 +47,12 @@ data class CarUiState(
     val levelItems: Map<String, List<BrowseItem>> = emptyMap(),
     val levelFailed: Set<String> = emptySet(),
     val message: String? = null,
+    /** Full-screen "Tocando agora" overlay. */
+    val nowPlayingOpen: Boolean = false,
+    /** Long-press context menu for one card/row; null when closed. */
+    val itemMenu: BrowseItem? = null,
+    /** Session action list over the full player. */
+    val actionsOpen: Boolean = false,
 )
 
 class CarViewModel(application: Application) : AndroidViewModel(application) {
@@ -220,6 +228,93 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun previous() = client.skipPrevious()
 
+    fun openNowPlaying() {
+        _state.update { it.copy(nowPlayingOpen = true) }
+    }
+
+    /** Closing the overlay also drops any action sheet opened on top of it. */
+    fun closeNowPlaying() {
+        _state.update { it.copy(nowPlayingOpen = false, actionsOpen = false) }
+    }
+
+    fun openActions() {
+        _state.update { it.copy(actionsOpen = true) }
+    }
+
+    fun closeActions() {
+        _state.update { it.copy(actionsOpen = false) }
+    }
+
+    /** Long press on a card/row: context menu with the session actions. */
+    fun openItemMenu(item: BrowseItem) {
+        _state.update { it.copy(itemMenu = item) }
+    }
+
+    fun closeItemMenu() {
+        _state.update { it.copy(itemMenu = null) }
+    }
+
+    /** Full-player action: the action already belongs to the current track. */
+    fun runAction(action: CustomAction) {
+        client.sendCustomAction(action.action)
+        _state.update { it.copy(actionsOpen = false) }
+        showMessage(feedbackFor(action))
+    }
+
+    /**
+     * Card context action. The engine publishes custom actions for the *current* track,
+     * so a playable item is started first and we wait for it to load before sending
+     * ("Criar estação" only exists once that item is the current one). Browsable-only
+     * items fall back to the current session actions.
+     */
+    fun runItemAction(item: BrowseItem, action: CustomAction) {
+        closeItemMenu()
+        if (!item.playable) {
+            if (_playback.value.customActions.any { it.action == action.action }) {
+                client.sendCustomAction(action.action)
+                showMessage(feedbackFor(action))
+            } else {
+                showMessage("Indisponível para este item")
+            }
+            return
+        }
+        showMessage(if (action.action == ACTION_CREATE_STATION) "Criando estação…" else "${action.title}…")
+        client.play(item.id)
+        viewModelScope.launch {
+            if (awaitAction(action.action)) {
+                client.sendCustomAction(action.action)
+                showMessage(feedbackFor(action))
+            } else {
+                showMessage("Indisponível para este item")
+            }
+        }
+    }
+
+    private suspend fun awaitAction(actionId: String): Boolean {
+        val previousTitle = _playback.value.title
+        val deadline = SystemClock.elapsedRealtime() + ITEM_ACTION_TIMEOUT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val playback = _playback.value
+            if (
+                playback.playing &&
+                playback.title != previousTitle &&
+                playback.customActions.any { it.action == actionId }
+            ) {
+                return true
+            }
+            delay(100L)
+        }
+        return _playback.value.customActions.any { it.action == actionId }
+    }
+
+    private fun feedbackFor(action: CustomAction): String = when {
+        action.action == ACTION_CREATE_STATION -> "Criando estação…"
+        action.action == ACTION_FAVORITE -> "Favorito aplicado"
+        action.action == ACTION_ADD_TO_LIBRARY -> "Adicionado à Biblioteca"
+        action.title.isNotBlank() -> "${action.title} aplicado"
+        else -> "Ação enviada"
+    }
+
     /** Touch on the seek bar: [fraction] of the current track duration. */
     fun seekToFraction(fraction: Float) {
         val playback = _playback.value
@@ -376,5 +471,10 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         private const val ENGINE_ACCOUNT_ACTIVITY = "com.apple.android.music.common.MainActivity"
         private const val PROGRESS_REFRESH_MS = 500L
         private const val MESSAGE_MS = 2500L
+        private const val ITEM_ACTION_TIMEOUT_MS = 1500L
+
+        const val ACTION_FAVORITE = "com.apple.android.music.playback.action.FAVORITE"
+        const val ACTION_ADD_TO_LIBRARY = "com.apple.android.music.playback.action.ADD_TO_LIBRARY"
+        const val ACTION_CREATE_STATION = "com.apple.android.music.playback.action.CREATE_STATION"
     }
 }

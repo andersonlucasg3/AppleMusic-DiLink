@@ -3,9 +3,11 @@ package com.anderson.applemusic.car
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,8 +30,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,6 +62,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import com.anderson.applemusic.core.BrowseItem
+import com.anderson.applemusic.core.CustomAction
 import com.anderson.applemusic.core.PlaybackSnapshot
 import com.anderson.applemusic.core.Section
 
@@ -73,7 +79,13 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val playback by viewModel.playback.collectAsStateWithLifecycle()
 
-    BackHandler(enabled = state.stack.isNotEmpty()) { viewModel.back() }
+    BackHandler(enabled = state.stack.isNotEmpty() && !state.nowPlayingOpen && state.itemMenu == null) {
+        viewModel.back()
+    }
+    BackHandler(enabled = state.itemMenu != null) { viewModel.closeItemMenu() }
+    BackHandler(enabled = state.nowPlayingOpen) {
+        if (state.actionsOpen) viewModel.closeActions() else viewModel.closeNowPlaying()
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Background)) {
         // Phone in landscape (~360 dp tall) gets smaller cards; the head unit is @1080p.
@@ -112,6 +124,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                                 items = state.levelItems[node.id],
                                 failed = node.id in state.levelFailed,
                                 onItem = viewModel::openItem,
+                                onLongItem = viewModel::openItemMenu,
                             )
                         }
 
@@ -119,6 +132,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                             categories = state.categories,
                             loading = state.rootLoading,
                             onCategory = viewModel::openCategory,
+                            onLongCategory = viewModel::openItemMenu,
                         )
 
                         else -> ShelvesScreen(
@@ -127,6 +141,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                             compact = compact,
                             onOpenSection = viewModel::openSection,
                             onItem = viewModel::openItem,
+                            onLongItem = viewModel::openItemMenu,
                         )
                     }
                 }
@@ -140,7 +155,34 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
             MiniPlayer(
                 playback = playback,
                 compact = compact,
-                stationAvailable = playback.customActions.any { it.action.endsWith("CREATE_STATION") },
+                onOpen = viewModel::openNowPlaying,
+                onPlayPause = viewModel::togglePlayPause,
+            )
+        }
+        state.itemMenu?.let { item ->
+            SessionActionsSheet(
+                title = item.title,
+                subtitle = item.subtitle.ifBlank {
+                    when {
+                        item.playable -> "Tocar e aplicar ação"
+                        item.browsable -> "Abrir"
+                        else -> ""
+                    }
+                },
+                actions = playback.customActions,
+                onAction = { action -> viewModel.runItemAction(item, action) },
+                onClose = viewModel::closeItemMenu,
+            )
+        }
+        if (state.nowPlayingOpen) {
+            NowPlayingScreen(
+                playback = playback,
+                message = state.message,
+                actionsOpen = state.actionsOpen,
+                onClose = viewModel::closeNowPlaying,
+                onOpenActions = viewModel::openActions,
+                onCloseActions = viewModel::closeActions,
+                onAction = viewModel::runAction,
                 onPlayPause = viewModel::togglePlayPause,
                 onPrevious = viewModel::previous,
                 onNext = viewModel::next,
@@ -302,6 +344,7 @@ private fun ShelvesScreen(
     compact: Boolean,
     onOpenSection: (Section) -> Unit,
     onItem: (BrowseItem) -> Unit,
+    onLongItem: (BrowseItem) -> Unit,
 ) {
     if (loading) {
         CenteredMessage("Carregando…")
@@ -323,6 +366,7 @@ private fun ShelvesScreen(
                 compact = compact,
                 onOpenSection = { onOpenSection(section) },
                 onItem = onItem,
+                onLongItem = onLongItem,
             )
         }
     }
@@ -334,6 +378,7 @@ private fun Shelf(
     compact: Boolean,
     onOpenSection: () -> Unit,
     onItem: (BrowseItem) -> Unit,
+    onLongItem: (BrowseItem) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -369,6 +414,7 @@ private fun Shelf(
                         item = item,
                         compact = compact,
                         onClick = { onItem(item) },
+                        onLongClick = { onLongItem(item) },
                     )
                 }
             }
@@ -378,8 +424,14 @@ private fun Shelf(
 
 private fun cardSize(compact: Boolean): Dp = if (compact) 104.dp else 180.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MediaCard(item: BrowseItem, compact: Boolean, onClick: () -> Unit) {
+private fun MediaCard(
+    item: BrowseItem,
+    compact: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val size = cardSize(compact)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -397,7 +449,12 @@ private fun MediaCard(item: BrowseItem, compact: Boolean, onClick: () -> Unit) {
                 scaleY = scale
             }
             .clip(RoundedCornerShape(CardRadius))
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
     ) {
         CardArtwork(item.artworkUri, size)
         // Subtle scrim so the short title/subtitle stay readable over busy artwork.
@@ -477,6 +534,7 @@ private fun LibraryScreen(
     categories: List<BrowseItem>,
     loading: Boolean,
     onCategory: (BrowseItem) -> Unit,
+    onLongCategory: (BrowseItem) -> Unit,
 ) {
     if (loading) {
         CenteredMessage("Carregando…")
@@ -492,13 +550,18 @@ private fun LibraryScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(categories, key = { it.id }) { item ->
-            CategoryRow(item = item, onClick = { onCategory(item) })
+            CategoryRow(
+                item = item,
+                onClick = { onCategory(item) },
+                onLongClick = { onLongCategory(item) },
+            )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CategoryRow(item: BrowseItem, onClick: () -> Unit) {
+private fun CategoryRow(item: BrowseItem, onClick: () -> Unit, onLongClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Row(
@@ -507,7 +570,12 @@ private fun CategoryRow(item: BrowseItem, onClick: () -> Unit) {
             .height(84.dp)
             .clip(RoundedCornerShape(CardRadius))
             .background(if (pressed) CardColorPressed else CardColor)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            )
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -562,6 +630,7 @@ private fun LevelScreen(
     items: List<BrowseItem>?,
     failed: Boolean,
     onItem: (BrowseItem) -> Unit,
+    onLongItem: (BrowseItem) -> Unit,
 ) {
     when {
         failed -> CenteredMessage("Não foi possível carregar “${node.title}”")
@@ -573,14 +642,19 @@ private fun LevelScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(items, key = { it.id }) { item ->
-                TrackRow(item = item, onClick = { onItem(item) })
+                TrackRow(
+                    item = item,
+                    onClick = { onItem(item) },
+                    onLongClick = { onLongItem(item) },
+                )
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrackRow(item: BrowseItem, onClick: () -> Unit) {
+private fun TrackRow(item: BrowseItem, onClick: () -> Unit, onLongClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Row(
@@ -589,7 +663,12 @@ private fun TrackRow(item: BrowseItem, onClick: () -> Unit) {
             .height(76.dp)
             .clip(RoundedCornerShape(ControlRadius))
             .background(if (pressed) CardColor else Color.Transparent)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            )
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -630,30 +709,23 @@ private fun TrackRow(item: BrowseItem, onClick: () -> Unit) {
 private fun MiniPlayer(
     playback: PlaybackSnapshot,
     compact: Boolean,
-    stationAvailable: Boolean,
+    onOpen: () -> Unit,
     onPlayPause: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onSeek: (Float) -> Unit,
-    onCreateStation: () -> Unit,
 ) {
     val hasTrack = playback.hasSession && playback.title.isNotBlank()
     Column(Modifier.fillMaxWidth().background(PlayerColor)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.08f)))
-        SeekBar(
-            positionMs = playback.positionMs,
-            durationMs = playback.durationMs,
-            onSeek = onSeek,
-        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 60.dp else 80.dp)
+                .height(if (compact) 64.dp else 76.dp)
+                // Any point of the bar except the play button opens the full player.
+                .clickable(onClick = onOpen)
                 .padding(horizontal = PagePadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlayerArtwork(playback.artwork, if (compact) 48.dp else 56.dp)
-            Spacer(Modifier.width(16.dp))
+            PlayerArtwork(playback.artwork, if (compact) 44.dp else 52.dp)
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = if (hasTrack) playback.title else "Nada tocando",
@@ -676,36 +748,314 @@ private fun MiniPlayer(
                 )
             }
             Spacer(Modifier.width(12.dp))
+            CircleButton(
+                iconRes = if (playback.playing) R.drawable.ic_pause else R.drawable.ic_play,
+                description = if (playback.playing) "Pausar" else "Tocar",
+                size = 52.dp,
+                iconSize = 24.dp,
+                filled = true,
+                onClick = onPlayPause,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingScreen(
+    playback: PlaybackSnapshot,
+    message: String?,
+    actionsOpen: Boolean,
+    onClose: () -> Unit,
+    onOpenActions: () -> Unit,
+    onCloseActions: () -> Unit,
+    onAction: (CustomAction) -> Unit,
+    onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onCreateStation: () -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Background)) {
+        val compact = maxHeight < 420.dp
+        val artSize = if (compact) 180.dp else 300.dp
+        val stationAvailable = playback.customActions.any {
+            it.action == CarViewModel.ACTION_CREATE_STATION
+        }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color(0xFF241014), Background))),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = if (compact) 24.dp else 40.dp,
+                    vertical = if (compact) 12.dp else 24.dp,
+                ),
+        ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CircleButton(
-                    iconRes = R.drawable.ic_prev,
-                    description = "Anterior",
+                    iconRes = R.drawable.ic_down,
+                    description = "Fechar",
                     size = 48.dp,
-                    iconSize = 22.dp,
-                    onClick = onPrevious,
+                    iconSize = 24.dp,
+                    onClick = onClose,
                 )
-                CircleButton(
-                    iconRes = if (playback.playing) R.drawable.ic_pause else R.drawable.ic_play,
-                    description = if (playback.playing) "Pausar" else "Tocar",
-                    size = 60.dp,
-                    iconSize = 26.dp,
-                    filled = true,
-                    onClick = onPlayPause,
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    text = "TOCANDO AGORA",
+                    color = Accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
                 )
-                CircleButton(
-                    iconRes = R.drawable.ic_next,
-                    description = "Próxima",
-                    size = 48.dp,
-                    iconSize = 22.dp,
-                    onClick = onNext,
-                )
+                Spacer(Modifier.weight(1f))
+                ActionsPill(onClick = onOpenActions)
             }
-            Spacer(Modifier.width(16.dp))
-            StationButton(available = stationAvailable, onClick = onCreateStation)
+            Spacer(Modifier.height(if (compact) 8.dp else 20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 24.dp else 40.dp),
+            ) {
+                PlayerArtwork(playback.artwork, artSize, corner = 16.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(
+                        text = playback.title.ifBlank { "Nada tocando" },
+                        color = TextPrimary,
+                        fontSize = if (compact) 26.sp else 34.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = playback.artist.ifBlank { "Apple Music" },
+                        color = TextSecondary,
+                        fontSize = if (compact) 15.sp else 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (playback.album.isNotBlank()) {
+                        Text(
+                            text = playback.album,
+                            color = TextSecondary.copy(alpha = 0.75f),
+                            fontSize = if (compact) 12.sp else 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(if (compact) 12.dp else 26.dp))
+                    SeekBar(
+                        positionMs = playback.positionMs,
+                        durationMs = playback.durationMs,
+                        onSeek = onSeek,
+                    )
+                    Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircleButton(
+                            iconRes = R.drawable.ic_prev,
+                            description = "Anterior",
+                            size = if (compact) 48.dp else 56.dp,
+                            iconSize = 22.dp,
+                            onClick = onPrevious,
+                        )
+                        CircleButton(
+                            iconRes = if (playback.playing) R.drawable.ic_pause else R.drawable.ic_play,
+                            description = if (playback.playing) "Pausar" else "Tocar",
+                            size = if (compact) 64.dp else 76.dp,
+                            iconSize = if (compact) 26.dp else 30.dp,
+                            filled = true,
+                            onClick = onPlayPause,
+                        )
+                        CircleButton(
+                            iconRes = R.drawable.ic_next,
+                            description = "Próxima",
+                            size = if (compact) 48.dp else 56.dp,
+                            iconSize = 22.dp,
+                            onClick = onNext,
+                        )
+                        if (stationAvailable) {
+                            Spacer(Modifier.width(if (compact) 8.dp else 16.dp))
+                            StationButton(available = true, onClick = onCreateStation)
+                        }
+                    }
+                }
+            }
         }
+        message?.let {
+            MessageChip(
+                text = it,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+            )
+        }
+        if (actionsOpen) {
+            SessionActionsSheet(
+                title = "Ações",
+                subtitle = playback.title.ifBlank { "Nada tocando" },
+                actions = playback.customActions,
+                onAction = onAction,
+                onClose = onCloseActions,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionsPill(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(
+        modifier = Modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (pressed) CardColorPressed else CardColor)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "Ações",
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/**
+ * Touch action sheet: the session's own custom actions (Favorito, Aleatório, Repetir,
+ * Adicionar à Biblioteca, Criar Estação, …). Also used as the long-press card menu.
+ */
+@Composable
+private fun SessionActionsSheet(
+    title: String,
+    subtitle: String,
+    actions: List<CustomAction>,
+    onAction: (CustomAction) -> Unit,
+    onClose: () -> Unit,
+) {
+    val scrimInteraction = remember { MutableInteractionSource() }
+    val panelInteraction = remember { MutableInteractionSource() }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.68f))
+            .clickable(interactionSource = scrimInteraction, indication = null, onClick = onClose),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        val actionsMaxHeight = (maxHeight * 0.94f - 160.dp).coerceAtLeast(120.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 760.dp)
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .background(CardColor)
+                .clickable(interactionSource = panelInteraction, indication = null) {}
+                .padding(top = 10.dp),
+        ) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(TextSecondary.copy(alpha = 0.4f)),
+            )
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 10.dp)) {
+                Text(
+                    text = title,
+                    color = TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (actions.isEmpty()) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp)) {
+                    Text(
+                        "Nenhuma ação anunciada para esta faixa",
+                        color = TextSecondary,
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = actionsMaxHeight)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    actions.forEach { action ->
+                        ActionRow(action = action, onClick = { onAction(action) })
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Fechar", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(action: CustomAction, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val highlighted = action.action == CarViewModel.ACTION_CREATE_STATION
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (pressed) CardColorPressed else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(if (highlighted) Accent else TextSecondary),
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(
+            text = action.title.ifBlank { action.action },
+            color = if (highlighted) Accent else TextPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -720,8 +1070,7 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Float) -> Unit)
         modifier = Modifier
             .fillMaxWidth()
             // 48 dp tall: the whole strip is a touch target, not just the 4 dp track.
-            .height(48.dp)
-            .padding(start = PagePadding, end = PagePadding),
+            .height(48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -889,8 +1238,8 @@ private fun ItemArtwork(uri: String?, size: Dp) {
 }
 
 @Composable
-private fun PlayerArtwork(bitmap: Bitmap?, size: Dp) {
-    val shape = RoundedCornerShape(12.dp)
+private fun PlayerArtwork(bitmap: Bitmap?, size: Dp, corner: Dp = 12.dp) {
+    val shape = RoundedCornerShape(corner)
     if (bitmap != null) {
         Image(
             bitmap = bitmap.asImageBitmap(),
@@ -899,7 +1248,7 @@ private fun PlayerArtwork(bitmap: Bitmap?, size: Dp) {
             contentScale = ContentScale.Crop,
         )
     } else {
-        PlaceholderArt(size, 12.dp)
+        PlaceholderArt(size, corner)
     }
 }
 

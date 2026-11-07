@@ -20,9 +20,12 @@ the bottom; `screenOrientation="sensorLandscape"`.
   glyphs Inter does not cover.
 - Cards are square, full-bleed artwork with a bottom scrim and a short title/subtitle.
   Press state is a colour wash plus a 0.97 scale — no animated shadow. Coil requests the
-  exact target size, never the full CDN image.
-- Top tabs use an accent underline; the account entry is a quiet icon + label. Error
-  panes show a 76 dp accent icon, a bold headline and a legible explanation.
+  exact target size, never the full CDN image. Cards use `combinedClickable`, so touch and
+  long-press share the same surface without keyboard focus.
+- Top tabs use an accent underline; the account entry is a quiet icon + label. The action
+  sheet and the full player are plain Compose overlays (no dialog window), so closing one
+  restores the previous screen and never leaves a stuck overlay. Error panes show a 76 dp
+  accent icon, a bold headline and a legible explanation.
 
 ## Layout
 
@@ -42,11 +45,21 @@ the bottom; `screenOrientation="sensorLandscape"`.
 - **Detalhe** — one level only, with breadcrumb (e.g. `Biblioteca / Playlists`), back
   button and item count. Playable rows play; a browsable-only row at this level shows
   "Use o app do Apple Music para abrir mais níveis" instead of stacking a third level.
-- **Tocando agora** — fixed bottom bar over black: rounded cover, title/artist, a 4 dp
-  progress bar with elapsed/total times and a 48 dp touch strip + thumb, circular
-  previous / play-pause (white) / next controls, and "Criar estação" as the accent pill
-  (enabled only while the session publishes `CREATE_STATION`; sends it through
-  `sendCustomAction`).
+- **Tocando agora** — a minimal fixed bottom bar over black: rounded cover, title/artist
+  and one white play/pause circle. Tapping anywhere else on the bar opens the
+  **full-screen player**; "Criar estação" is deliberately not in the mini bar.
+- **Full-screen player** — large rounded cover, title/artist/album, a 4 dp progress bar
+  with elapsed/total times and a 48 dp seek strip, circular previous / play-pause (white)
+  / next controls, an accent "Criar estação" action when the session publishes it, and an
+  "Ações" sheet listing the engine's `customActions` (Favorito, Aleatório, Repetir,
+  Reprodução Automática, Adicionar à Biblioteca, Criar Estação). Actions go through
+  `sendCustomAction` and show a feedback chip. Back closes the sheet first, then the
+  player.
+- **Long-press cards/rows** — Início/Biblioteca/Rádio cards and detail rows open the same
+  session action sheet. Choosing an action on a playable item starts that item, waits for
+  the engine to publish the action for the new current track, then sends it; "Criar
+  estação" therefore only fires once the item is actually playing, otherwise the app
+  shows "Indisponível". Normal tap keeps playing/opening the item.
 - **Entrar na conta** — explicit intent to
   `com.apple.android.music/.common.MainActivity` (the engine is hidden from the
   launcher). Shown in the top bar and in the failure pane when the engine is installed.
@@ -93,8 +106,8 @@ verifies the certificate.
 Signed with Morphe and installed with `adb install -r` on:
 
 - **Phone** SM-S921B (`RXCX100BZ5J`), API 36, 1080x2340 @ 480 dpi — the car UI rotates to
-  landscape (780x360 dp, compact cards). Navigation and seek were driven only with
-  `adb shell input tap`.
+  landscape (780x360 dp, compact cards). Taps, fullscreen seek and long press
+  (`adb shell input swipe x y x y 600`) were driven only through ADB.
 - **TV** MiTV-AFMU0 (`100.74.105.35:5555`), API 34, 1920x1080 override @ 320 dpi
   (960x540 dp) — used as a stand-in for the 1080p head-unit layout.
 
@@ -106,16 +119,18 @@ Evidence in `.pipeline/car-app/`:
 
 | flow | file |
 |---|---|
-| Início, scrim cards, playing | `revamp-phone-home.png`, `revamp-tv-home.png` |
-| Biblioteca (categories) | `revamp-phone-library.png` |
-| Rádio por Gênero | `revamp-phone-radio.png` |
-| Detalhe + breadcrumb | `revamp-phone-detail.png` |
-| Seek por toque (5:49/10:56) | `revamp-phone-seek.png` |
-| Tocando agora (playing) | `revamp-phone-home.png`, `revamp-phone-player.png` |
-| Estado de erro com ícone | `revamp-tv-error.png` |
+| Início + minimal mini player | `ux-phone-home.png`, `ux-tv-home.png` |
+| Full-screen Now Playing | `ux-phone-nowplaying.png`, `ux-tv-nowplaying.png` |
+| "Ações" sheet (session custom actions) | `ux-phone-actions.png`, `ux-tv-actions.png` |
+| Long press menu (Início) | `ux-phone-card-menu.png` |
+| Long press menu (Rádio) | `ux-phone-card-menu-radio.png` |
+| Card "Criar estação" (plays, waits PLAYING, sends) | `ux-phone-card-station.png` |
+| Seek by touch in the full player | `ux-phone-seek.png` |
+| Back: sheet -> player -> screen | `ux-ui-back-actions.xml`, `ux-ui-back-fullscreen.xml` |
 
-`logcat` is clean for the app: `revamp-logcat.txt` has no `FATAL EXCEPTION` /
-`AndroidRuntime` entries. The phone session was left playing.
+`logcat` is clean for the app: `ux-logcat.txt` has no `FATAL EXCEPTION` /
+`AndroidRuntime` entries. `ux-actions-log.txt` shows the `sendCustomAction
+...CREATE_STATION` sent after the long-press flow. The phone session was left playing.
 
 ## What is missing on the real DiLink
 
