@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +83,9 @@ import coil3.request.ImageRequest
 import com.anderson.applemusic.core.BrowseItem
 import com.anderson.applemusic.core.PlaybackSnapshot
 import com.anderson.applemusic.core.Section
+import com.anderson.applemusic.core.update.UpdateChecker
+import com.anderson.applemusic.core.update.UpdateController
+import com.anderson.applemusic.core.update.UpdatePhase
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -98,6 +102,18 @@ private val CardHeight = 124.dp
 @Composable
 fun TvApp(viewModel: TvViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val updates = remember {
+        UpdateController(
+            context = context,
+            artifact = UpdateChecker.ARTIFACT_TV,
+            currentVersionCode = BuildConfig.APP_VERSION_CODE.toLong(),
+        )
+    }
+    val updateState by updates.state.collectAsStateWithLifecycle()
+    // Throttled check (24 h) on open; the header chip forces a check.
+    LaunchedEffect(updates) { updates.check(force = false) }
+    DisposableEffect(updates) { onDispose { updates.close() } }
     val firstTabFocus = remember { FocusRequester() }
     val playerFocus = remember { FocusRequester() }
     val actionsButtonFocus = remember { FocusRequester() }
@@ -107,11 +123,13 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
     var menuOriginFocus by remember { mutableStateOf<FocusRequester?>(null) }
 
     // TV apps start with nothing focused; put the D-pad on the tab bar and put it
-    // back there whenever the drill-down stack returns to a tab root.
-    LaunchedEffect(state.tabs.size, state.stack.size) {
+    // back there whenever the drill-down stack returns to a tab root. The update modal
+    // owns the focus while it is open.
+    LaunchedEffect(state.tabs.size, state.stack.size, updateState.phase) {
         if (
             state.tabs.isNotEmpty() && state.stack.isEmpty() && !state.nowPlayingOpen &&
-            !state.searchOpen && state.itemMenu == null && !state.actionsOpen
+            !state.searchOpen && state.itemMenu == null && !state.actionsOpen &&
+            updateState.phase == UpdatePhase.IDLE
         ) {
             withFrameNanos { }
             runCatching { firstTabFocus.requestFocus() }
@@ -179,6 +197,7 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                         onSelect = viewModel::selectTab,
                         onSearch = viewModel::openSearch,
                         onOpenPlayer = viewModel::openNowPlaying,
+                        onCheckUpdates = { updates.check(force = true) },
                         firstTabFocus = firstTabFocus,
                         playerFocus = playerFocus,
                     )
@@ -234,6 +253,13 @@ fun TvApp(viewModel: TvViewModel = viewModel()) {
                 )
             }
             state.message?.let { MessageToast(it) }
+            UpdateOverlay(
+                state = updateState,
+                currentVersionName = BuildConfig.APP_VERSION_NAME,
+                onInstall = updates::downloadAndInstall,
+                onCancel = updates::cancel,
+                onDismiss = updates::dismiss,
+            )
         }
     }
 }
@@ -247,6 +273,7 @@ private fun Header(
     onSelect: (Int) -> Unit,
     onSearch: () -> Unit,
     onOpenPlayer: () -> Unit,
+    onCheckUpdates: () -> Unit,
     firstTabFocus: FocusRequester,
     playerFocus: FocusRequester,
 ) {
@@ -278,6 +305,8 @@ private fun Header(
             onClick = onSearch,
         )
         Spacer(Modifier.weight(1f))
+        UpdatesChip(onClick = onCheckUpdates)
+        Spacer(Modifier.width(10.dp))
         PlayerChip(
             playback = playback,
             focusRequester = playerFocus,

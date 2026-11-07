@@ -74,8 +74,15 @@ jobs:
             echo "::error::versão inválida: $VERSION"
             exit 1
           fi
+          # appVersionCode scheme shared with the in-app updater: 1.6.1 -> 10601.
+          VERSION_CODE="$(VERSION="$VERSION" python3 -c 'import os,re; m=re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?$", os.environ["VERSION"]); print(int(m.group(1))*10000+int(m.group(2))*100+int(m.group(3) or 0) if m else "")')"
+          if [ -z "$VERSION_CODE" ] || [ "$VERSION_CODE" -le 0 ]; then
+            echo "::error::versão $VERSION não segue MAJOR.MINOR[.PATCH]; não é possível derivar o versionCode"
+            exit 1
+          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "VERSION=$VERSION"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION VERSION_CODE=$VERSION_CODE"
 
       # Sem source_url nem ENGINE_SOURCE_URL o job NÃO falha: publica os companions e
       # marca "engine não anexado" nas notas. Com URL, qualquer falha do engine derruba
@@ -129,6 +136,8 @@ jobs:
           ./gradlew :patches:buildAndroid :tv-app:assembleRelease :car-app:assembleRelease \
             --no-daemon \
             -Pkotlin.compiler.execution.strategy=in-process \
+            -PappVersionName="$VERSION" \
+            -PappVersionCode="$VERSION_CODE" \
             "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
 
       # AGP gera *-release-unsigned.apk (os módulos desligam o debug keystore de
@@ -301,11 +310,87 @@ jobs:
           verify_cert dist/AppleMusic-engine-arm64.apk
           check_engine dist/AppleMusic-engine-arm64.apk arm64-v8a
 
+      # Metadados lidos pelo updater in-app (core): versão, versionCode e, por artefato,
+      # nome/sha256/tamanho/versionCode. Roda depois dos APKs e antes do SHA256SUMS para
+      # que o checksum também cubra este arquivo.
+      - name: Write updates.json
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess
+          from datetime import datetime, timezone
+
+          version = os.environ["VERSION"]
+          version_code = int(os.environ["VERSION_CODE"])
+          dist = "dist"
+          build_tools = os.environ["BUILD_TOOLS"]
+
+          def sha256(path):
+              digest = hashlib.sha256()
+              with open(path, "rb") as fh:
+                  for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def add(key, filename, version_code=None):
+              path = os.path.join(dist, filename)
+              if not os.path.exists(path):
+                  return False
+              entry = {
+                  "name": filename,
+                  "sha256": sha256(path),
+                  "size": os.path.getsize(path),
+              }
+              if version_code is not None:
+                  entry["versionCode"] = version_code
+              assets[key] = entry
+              return True
+
+          assets = {}
+          for key, filename in (("tv", "AppleMusic-TV.apk"), ("car", "AppleMusic-Car.apk")):
+              if not add(key, filename, version_code):
+                  print(f"::error::{filename} ausente em dist/")
+                  raise SystemExit(1)
+
+          for key, filename in (
+              ("engine-arm32", "AppleMusic-engine-arm32.apk"),
+              ("engine-arm64", "AppleMusic-engine-arm64.apk"),
+          ):
+              path = os.path.join(dist, filename)
+              if not os.path.exists(path):
+                  continue
+              badging = subprocess.run(
+                  [os.path.join(build_tools, "aapt2"), "dump", "badging", path],
+                  check=True, capture_output=True, text=True,
+              ).stdout
+              match = re.search(r"versionCode='(\d+)'", badging)
+              if not match:
+                  print(f"::error::sem versionCode em {filename}")
+                  raise SystemExit(1)
+              assets[key] = {
+                  "name": filename,
+                  "sha256": sha256(path),
+                  "size": os.path.getsize(path),
+                  "versionCode": int(match.group(1)),
+              }
+
+          document = {
+              "version": version,
+              "versionCode": version_code,
+              "releasedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "assets": assets,
+          }
+          with open(os.path.join(dist, "updates.json"), "w", encoding="utf-8") as fh:
+              json.dump(document, fh, indent=2, sort_keys=True)
+              fh.write("\n")
+          print(json.dumps(document, indent=2, sort_keys=True))
+          PY
+
       - name: Write SHA256SUMS
         run: |
           set -euo pipefail
           cd dist
-          sha256sum -- *.apk > SHA256SUMS
+          sha256sum -- *.apk updates.json > SHA256SUMS
           cat SHA256SUMS
 
       - name: Upload artifacts
@@ -316,6 +401,7 @@ jobs:
           path: |
             dist/*.apk
             dist/SHA256SUMS
+            dist/updates.json
 
       - name: Prepare release notes
         if: env.PUBLISH == 'true'
@@ -350,6 +436,14 @@ jobs:
             echo "- Criar estação: só a partir do item atual; a sessão não expõe a ação para outros itens."
             echo
             echo "Confira os downloads com SHA256SUMS."
+            echo
+            echo "## Atualizações in-app"
+            echo
+            echo "O arquivo \`updates.json\` descreve esta release (versão, versionCode e, por APK,"
+            echo "SHA-256 e tamanho). Os companions com o updater in-app leem esse arquivo em"
+            echo "\`releases/latest\`, baixam o APK novo, verificam o SHA-256 e abrem o"
+            echo "instalador do sistema; o engine é atualizado antes do app quando houver"
+            echo "versão nova."
           } > release-notes.md
           cat release-notes.md
 
@@ -359,10 +453,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f \( -name '*.apk' -o -name 'SHA256SUMS' \) | sort)
-          EXPECTED_ASSETS=3
+          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f \( -name '*.apk' -o -name 'SHA256SUMS' -o -name 'updates.json' \) | sort)
+          EXPECTED_ASSETS=4
           if [ -n "${SOURCE_URL:-}" ]; then
-            EXPECTED_ASSETS=5
+            EXPECTED_ASSETS=6
           fi
           if [ "${#ASSETS[@]}" -ne "$EXPECTED_ASSETS" ]; then
             echo "::error::assets inesperados: ${#ASSETS[@]} (esperado $EXPECTED_ASSETS)"

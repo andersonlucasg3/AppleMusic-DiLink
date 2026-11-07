@@ -37,6 +37,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -65,6 +67,8 @@ import com.anderson.applemusic.core.BrowseItem
 import com.anderson.applemusic.core.CustomAction
 import com.anderson.applemusic.core.PlaybackSnapshot
 import com.anderson.applemusic.core.Section
+import com.anderson.applemusic.core.update.UpdateChecker
+import com.anderson.applemusic.core.update.UpdateController
 
 /**
  * Touch-first client for the BYD DiLink head unit (1920x1080, API 29).
@@ -78,6 +82,18 @@ import com.anderson.applemusic.core.Section
 fun CarApp(viewModel: CarViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val playback by viewModel.playback.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val updates = remember {
+        UpdateController(
+            context = context,
+            artifact = UpdateChecker.ARTIFACT_CAR,
+            currentVersionCode = BuildConfig.APP_VERSION_CODE.toLong(),
+        )
+    }
+    val updateState by updates.state.collectAsStateWithLifecycle()
+    // Throttled check (24 h) on open; the top-bar button forces a check.
+    LaunchedEffect(updates) { updates.check(force = false) }
+    DisposableEffect(updates) { onDispose { updates.close() } }
 
     BackHandler(enabled = state.stack.isNotEmpty() && !state.nowPlayingOpen && state.itemMenu == null) {
         viewModel.back()
@@ -96,6 +112,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                 selected = state.selectedTab,
                 onSelect = viewModel::selectTab,
                 onAccount = viewModel::openAccount,
+                onCheckUpdates = { updates.check(force = true) },
             )
             if (state.stack.isNotEmpty()) {
                 val node = state.stack.last()
@@ -190,6 +207,13 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                 onCreateStation = viewModel::createStation,
             )
         }
+        UpdateOverlay(
+            state = updateState,
+            currentVersionName = BuildConfig.APP_VERSION_NAME,
+            onInstall = updates::downloadAndInstall,
+            onCancel = updates::cancel,
+            onDismiss = updates::dismiss,
+        )
     }
 }
 
@@ -199,6 +223,7 @@ private fun TopBar(
     selected: Int,
     onSelect: (Int) -> Unit,
     onAccount: () -> Unit,
+    onCheckUpdates: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -225,6 +250,7 @@ private fun TopBar(
             )
         }
         Spacer(Modifier.weight(1f))
+        UpdatesButton(onClick = onCheckUpdates)
         AccountButton(onClick = onAccount)
     }
 }
