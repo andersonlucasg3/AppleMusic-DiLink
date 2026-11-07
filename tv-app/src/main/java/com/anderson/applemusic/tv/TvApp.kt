@@ -1234,7 +1234,7 @@ private fun SeekControl(
                 val sign = if (feedback.deltaMs < 0L) "-" else "+"
                 "$arrow $sign${abs(feedback.deltaMs) / 1000}s • ${formatTime(feedback.positionMs)}"
             } else {
-                "◀ ▶ buscam 10s"
+                "◀ ▶ ±10 s"
             },
             color = if (feedback != null) Accent else TextSecondary,
             fontSize = 12.sp,
