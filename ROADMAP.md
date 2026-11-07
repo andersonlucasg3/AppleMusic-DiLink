@@ -28,8 +28,9 @@ Documento de planejamento. O produto são **apps próprios** que usam o Apple Mu
 ## Fases
 
 ### Fase 0 — engine e patches (em andamento)
-- [x] Patches DiLink (login/ADI/TLS/web assets) + TV (manifest/D-pad/player).
-- [ ] Remover os patches `TV:` — a UI de TV passa a ser o `tv-app`.
+- [x] Patches DiLink (login/ADI/TLS/web assets) — o engine é só backend.
+- [x] Remover os patches `TV:` — a UI de TV passa a ser o `tv-app` (o engine ficou só com os
+  patches DiLink: `support`, `manifest`, `TLS trust`, `web assets` e `hide engine launcher`).
 - [ ] `engine/`: script/CI que gera `AppleMusic-engine-arm32.apk` (TV) e `-arm64.apk` (carro),
   assinados via secrets. Bundle `.mpp` descontinuado.
 - Aceite: engine instala, loga e toca; companion conecta com UID compartilhado.

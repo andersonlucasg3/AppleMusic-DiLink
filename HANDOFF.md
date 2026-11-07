@@ -1,6 +1,15 @@
 # Handoff — Apple Music
 
-Atualizado em **2026-11-06**. Documento de passagem de contexto; não é uma release.
+Atualizado em **2026-11-07**. Documento de passagem de contexto; não é uma release.
+
+## Sessão 2026-11-07 — patches de TV removidos
+
+Os patches `TV: manifest`, `TV: D-pad focus` e `TV: player expand focus` (e o helper
+`TvFocusCompat.java` + o recurso `res/anim/tv_focus_scale.xml`) foram **removidos**: a UI de TV é
+o companion `tv-app` e o engine ficou só com os patches DiLink (`support`, `manifest`, `TLS trust`,
+`web assets`, `hide engine launcher`). O APK do engine não tem entrada no launcher — o workflow
+passou a validar a ausência de `launchable-activity` em vez do `leanback-launchable-activity`. As
+seções de TV abaixo são históricas.
 
 ## Sessão 2026-11-06 — Android TV (branch `feat/android-tv`)
 

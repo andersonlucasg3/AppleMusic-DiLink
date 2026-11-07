@@ -158,7 +158,11 @@ jobs:
           cp "$DPI" splits32/config.xhdpi.apk
           ls -l splits32
 
-      - name: Build TV APK
+      # The engine is a backend: the bundle only carries the DiLink patches
+      # (support/web assets + their manifest/TLS dependencies) plus the hidden
+      # launcher. The TV UI lives in the tv-app companion, so there is no
+      # leanback entry point and no `-e "TV: ..."` here.
+      - name: Build engine APK (32-bit, for TV)
         if: steps.version.outputs.release == 'true' && steps.source.outputs.url != ''
         run: |
           set -euo pipefail
@@ -168,31 +172,29 @@ jobs:
             -p "$MPP" \
             -o "$APK" \
             merged32.apk \
-            -e "TV: manifest" \
-            -e "TV: D-pad focus" \
-            -e "TV: player expand focus"
+            -e "DiLink: hide engine launcher"
           if [ ! -f "$APK" ]; then
-            echo "::error::APK de TV não foi gerado"
+            echo "::error::APK do engine não foi gerado"
             exit 1
           fi
           echo "APK=$APK" >> "$GITHUB_ENV"
           ls -l "$APK"
 
-      - name: Validate TV APK
+      - name: Validate engine APK
         if: steps.version.outputs.release == 'true' && steps.source.outputs.url != ''
         run: |
           set -euo pipefail
           BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           BADGING="$("$BUILD_TOOLS/aapt2" dump badging "$APK")"
-          if ! grep -q "leanback-launchable-activity" <<< "$BADGING"; then
-            echo "::error::APK sem leanback-launchable-activity"
+          if grep -q "launchable-activity" <<< "$BADGING"; then
+            echo "::error::engine ainda expõe uma activity no launcher"
             exit 1
           fi
           if ! grep -q "native-code: 'armeabi-v7a'" <<< "$BADGING"; then
             echo "::error::APK sem native-code armeabi-v7a"
             exit 1
           fi
-          echo "$BADGING" | grep -E "leanback-launchable-activity|native-code|sdkVersion"
+          echo "$BADGING" | grep -E "launchable-activity|native-code|sdkVersion"
           "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | tee apksigner.txt
           if ! grep -q "CN=Morphe" apksigner.txt; then
             echo "::error::APK não está assinado com CN=Morphe"
