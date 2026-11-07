@@ -15,7 +15,9 @@ Documento de planejamento. O produto são **apps próprios** que usam o Apple Mu
 
 ## Princípios
 
-- **Engine é backend**: nenhuma tela do engine é usada; ele fica oculto do launcher.
+- **Engine é backend**: nenhuma tela do engine é usada; ele fica oculto do launcher — o patch
+  `DiLink: hide engine launcher` remove a categoria `LAUNCHER` da `MainActivity` e o companion
+  é a única entrada.
 - **Assinatura única**: engine e companions assinados com o mesmo cert (`MORPHE_*`, secrets do repo),
   com `sharedUserId="com.apple.android"` — sem isso o `MediaBrowserService` recusa (`LibraryResult -4`).
 - **Release build** para medir/entregar; debug é ~4× mais lento no box.
@@ -54,7 +56,8 @@ Documento de planejamento. O produto são **apps próprios** que usam o Apple Mu
 
 ### Fase 4 — Login inicial
 - [ ] Ação "Entrar na conta" no companion: abre `com.apple.android.music/.common.MainActivity`
-  por intent explícita (engine oculto do launcher), usuário loga e volta.
+  por intent explícita (o engine não tem ícone no launcher — patch
+  `DiLink: hide engine launcher`), usuário loga e volta.
 - [ ] Estados de erro: engine ausente / não logado / serviço indisponível.
 - Aceite: instalação limpa num device → login → volta ao companion logado.
 
