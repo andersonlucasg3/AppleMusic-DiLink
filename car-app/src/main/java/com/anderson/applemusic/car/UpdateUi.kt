@@ -3,6 +3,8 @@ package com.anderson.applemusic.car
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,20 +32,25 @@ import com.anderson.applemusic.core.update.UpdateUiState
 
 /** Top-bar entry point for the updater, next to "Entrar na conta". */
 @Composable
-internal fun UpdatesButton(onClick: () -> Unit) {
+internal fun UpdatesButton(onClick: () -> Unit, compact: Boolean = false) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     Row(
         modifier = Modifier
             .height(48.dp)
             .clip(RoundedCornerShape(ControlRadius))
-            .clickable(onClick = onClick)
+            .background(if (pressed) CardColor else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Verificar atualizações",
-            color = TextSecondary,
+            // The phone in landscape is ~780 dp wide: the short label keeps both quiet
+            // top-bar entries complete instead of clipped.
+            text = if (compact) "Atualizações" else "Verificar atualizações",
+            color = if (pressed) TextPrimary else TextSecondary,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Normal,
             maxLines = 1,
         )
     }

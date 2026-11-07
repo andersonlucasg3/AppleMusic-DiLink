@@ -1,14 +1,23 @@
 package com.anderson.applemusic.car
 
 import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -44,8 +53,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -110,6 +121,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
             TopBar(
                 tabs = state.tabs,
                 selected = state.selectedTab,
+                compact = compact,
                 onSelect = viewModel::selectTab,
                 onAccount = viewModel::openAccount,
                 onCheckUpdates = { updates.check(force = true) },
@@ -191,7 +203,13 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
                 onClose = viewModel::closeItemMenu,
             )
         }
-        if (state.nowPlayingOpen) {
+        // The full player slides over the browse tree in 180 ms; the mini player stays
+        // composed underneath so the cover does not flash on the way back.
+        AnimatedVisibility(
+            visible = state.nowPlayingOpen,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 10 },
+            exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { it / 10 },
+        ) {
             NowPlayingScreen(
                 playback = playback,
                 message = state.message,
@@ -221,6 +239,7 @@ fun CarApp(viewModel: CarViewModel = viewModel()) {
 private fun TopBar(
     tabs: List<CarTab>,
     selected: Int,
+    compact: Boolean,
     onSelect: (Int) -> Unit,
     onAccount: () -> Unit,
     onCheckUpdates: () -> Unit,
@@ -236,12 +255,12 @@ private fun TopBar(
         Text(
             text = "Apple Music",
             color = Accent,
-            fontSize = 21.sp,
+            fontSize = if (compact) 18.sp else 21.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = (-0.5).sp,
             maxLines = 1,
         )
-        Spacer(Modifier.width(24.dp))
+        Spacer(Modifier.width(if (compact) 12.dp else 24.dp))
         tabs.forEachIndexed { index, tab ->
             TabButton(
                 title = tab.title,
@@ -250,8 +269,8 @@ private fun TopBar(
             )
         }
         Spacer(Modifier.weight(1f))
-        UpdatesButton(onClick = onCheckUpdates)
-        AccountButton(onClick = onAccount)
+        UpdatesButton(onClick = onCheckUpdates, compact = compact)
+        AccountButton(onClick = onAccount, compact = compact)
     }
 }
 
@@ -273,13 +292,13 @@ private fun TabButton(title: String, selected: Boolean, onClick: () -> Unit) {
             text = title,
             color = if (selected) TextPrimary else TextSecondary,
             fontSize = 15.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
         )
         Spacer(Modifier.height(5.dp))
         Box(
             modifier = Modifier
-                .width(20.dp)
+                .width(22.dp)
                 .height(3.dp)
                 .clip(RoundedCornerShape(2.dp))
                 .background(if (selected) Accent else Color.Transparent),
@@ -288,7 +307,7 @@ private fun TabButton(title: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AccountButton(onClick: () -> Unit) {
+private fun AccountButton(onClick: () -> Unit, compact: Boolean) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Row(
@@ -308,10 +327,10 @@ private fun AccountButton(onClick: () -> Unit) {
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "Entrar na conta",
+            text = if (compact) "Conta" else "Entrar na conta",
             color = if (pressed) TextPrimary else TextSecondary,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Normal,
             maxLines = 1,
         )
     }
@@ -406,25 +425,25 @@ private fun Shelf(
     onItem: (BrowseItem) -> Unit,
     onLongItem: (BrowseItem) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = section.title,
                 color = TextPrimary,
-                fontSize = if (compact) 17.sp else 22.sp,
+                fontSize = if (compact) 18.sp else 26.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (!section.loading) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(10.dp))
                 Text("${section.items.size}", color = TextSecondary, fontSize = 12.sp)
             }
         }
         when {
-            section.loading -> Text("Carregando…", color = TextSecondary, fontSize = 14.sp)
-            section.items.isEmpty() -> Text("Vazio", color = TextSecondary, fontSize = 14.sp)
+            section.loading -> Text("Carregando…", color = TextSecondary, fontSize = 13.sp)
+            section.items.isEmpty() -> Text("Vazio", color = TextSecondary, fontSize = 13.sp)
             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp)) {
                 if (!section.direct) {
                     item(key = "all-${section.id}", contentType = "seeAll") {
@@ -448,7 +467,7 @@ private fun Shelf(
     }
 }
 
-private fun cardSize(compact: Boolean): Dp = if (compact) 104.dp else 180.dp
+private fun cardSize(compact: Boolean): Dp = if (compact) 104.dp else 200.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -459,11 +478,13 @@ private fun MediaCard(
     onLongClick: () -> Unit,
 ) {
     val size = cardSize(compact)
+    val shape = RoundedCornerShape(CardRadius)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    // Colour and a light press scale only; no elevation/shadow animation.
+    // Colour and a short press scale only; the elevation shadow is static (no animation).
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(150),
         label = "mediaCardScale",
     )
     Box(
@@ -474,7 +495,8 @@ private fun MediaCard(
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(CardRadius))
+            .shadow(elevation = 12.dp, shape = shape, clip = false)
+            .clip(shape)
             .combinedClickable(
                 interactionSource = interaction,
                 indication = null,
@@ -483,7 +505,8 @@ private fun MediaCard(
             ),
     ) {
         CardArtwork(item.artworkUri, size)
-        // Subtle scrim so the short title/subtitle stay readable over busy artwork.
+        // Scrim: the artwork keeps the top two thirds, the title/subtitle sit on a
+        // near-opaque bottom band.
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -491,9 +514,9 @@ private fun MediaCard(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
                             0f to Color.Transparent,
-                            0.42f to Color.Transparent,
-                            0.72f to Color.Black.copy(alpha = 0.45f),
-                            1f to Color.Black.copy(alpha = 0.9f),
+                            0.46f to Color.Transparent,
+                            0.72f to Color.Black.copy(alpha = 0.5f),
+                            1f to Color.Black.copy(alpha = 0.92f),
                         ),
                     ),
                 ),
@@ -503,12 +526,12 @@ private fun MediaCard(
         }
         Column(
             modifier = Modifier.align(Alignment.BottomStart).padding(if (compact) 10.dp else 14.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
                 text = item.title,
                 color = TextPrimary,
-                fontSize = if (compact) 13.sp else 16.sp,
+                fontSize = if (compact) 15.sp else 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -524,7 +547,7 @@ private fun MediaCard(
                 Text(
                     text = subtitle,
                     color = TextSecondary,
-                    fontSize = if (compact) 10.sp else 12.sp,
+                    fontSize = if (compact) 12.sp else 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -536,21 +559,49 @@ private fun MediaCard(
 @Composable
 private fun SeeAllCard(count: Int, compact: Boolean, onClick: () -> Unit) {
     val size = cardSize(compact)
+    val shape = RoundedCornerShape(CardRadius)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier = Modifier
             .width(size)
             .height(size)
-            .clip(RoundedCornerShape(CardRadius))
-            .background(if (pressed) CardColorPressed else CardColor)
+            .shadow(elevation = 12.dp, shape = shape, clip = false)
+            .clip(shape)
+            .background(
+                if (pressed) {
+                    SolidColor(CardColorPressed)
+                } else {
+                    Brush.linearGradient(listOf(CardColor, Color(0xFF121214)))
+                },
+            )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Ver tudo", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Text("$count itens", color = TextSecondary, fontSize = 12.sp)
+            Box(
+                modifier = Modifier
+                    .size(if (compact) 40.dp else 48.dp)
+                    .clip(CircleShape)
+                    .background(Accent.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_chevron),
+                    contentDescription = null,
+                    modifier = Modifier.size(if (compact) 20.dp else 24.dp),
+                    tint = Accent,
+                )
+            }
+            Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+            Text(
+                text = "Ver tudo",
+                color = TextPrimary,
+                fontSize = if (compact) 15.sp else 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text("$count itens", color = TextSecondary, fontSize = 13.sp)
         }
     }
 }
@@ -704,8 +755,8 @@ private fun TrackRow(item: BrowseItem, onClick: () -> Unit, onLongClick: () -> U
             Text(
                 text = item.title,
                 color = TextPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -750,13 +801,13 @@ private fun MiniPlayer(
                 .padding(horizontal = PagePadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlayerArtwork(playback.artwork, if (compact) 44.dp else 52.dp)
+            PlayerArtwork(playback.artwork, 40.dp, corner = 8.dp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = if (hasTrack) playback.title else "Nada tocando",
                     color = if (hasTrack) TextPrimary else TextSecondary,
-                    fontSize = if (compact) 16.sp else 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -803,15 +854,14 @@ private fun NowPlayingScreen(
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(Background)) {
         val compact = maxHeight < 420.dp
-        val artSize = if (compact) 180.dp else 300.dp
+        val artSize = if (compact) 180.dp else 320.dp
         val stationAvailable = playback.customActions.any {
             it.action == CarViewModel.ACTION_CREATE_STATION
         }
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color(0xFF241014), Background))),
-        )
+        // Dark gradient sampled from the current cover; the accent-tinted fallback is
+        // used while the engine has no artwork.
+        val backdrop = remember(playback.artwork) { nowPlayingBackdrop(playback.artwork) }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(backdrop)))
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -848,12 +898,17 @@ private fun NowPlayingScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 24.dp else 40.dp),
             ) {
-                PlayerArtwork(playback.artwork, artSize, corner = 16.dp)
+                PlayerArtwork(
+                    playback.artwork,
+                    artSize,
+                    corner = 16.dp,
+                    elevation = if (compact) 0.dp else 24.dp,
+                )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Text(
                         text = playback.title.ifBlank { "Nada tocando" },
                         color = TextPrimary,
-                        fontSize = if (compact) 26.sp else 34.sp,
+                        fontSize = if (compact) 26.sp else 36.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -862,8 +917,8 @@ private fun NowPlayingScreen(
                     Text(
                         text = playback.artist.ifBlank { "Apple Music" },
                         color = TextSecondary,
-                        fontSize = if (compact) 15.sp else 18.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontSize = if (compact) 15.sp else 19.sp,
+                        fontWeight = FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -876,15 +931,16 @@ private fun NowPlayingScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Spacer(Modifier.height(if (compact) 12.dp else 26.dp))
+                    Spacer(Modifier.height(if (compact) 12.dp else 28.dp))
                     SeekBar(
                         positionMs = playback.positionMs,
                         durationMs = playback.durationMs,
                         onSeek = onSeek,
                     )
-                    Spacer(Modifier.height(if (compact) 4.dp else 10.dp))
+                    Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         CircleButton(
@@ -910,7 +966,7 @@ private fun NowPlayingScreen(
                             onClick = onNext,
                         )
                         if (stationAvailable) {
-                            Spacer(Modifier.width(if (compact) 8.dp else 16.dp))
+                            Spacer(Modifier.weight(1f))
                             StationButton(available = true, onClick = onCreateStation)
                         }
                     }
@@ -953,7 +1009,7 @@ private fun ActionsPill(onClick: () -> Unit) {
         Text(
             text = "Ações",
             color = TextPrimary,
-            fontSize = 14.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
         )
     }
@@ -973,6 +1029,7 @@ private fun SessionActionsSheet(
 ) {
     val scrimInteraction = remember { MutableInteractionSource() }
     val panelInteraction = remember { MutableInteractionSource() }
+    val panelShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -983,9 +1040,13 @@ private fun SessionActionsSheet(
         val actionsMaxHeight = (maxHeight * 0.94f - 160.dp).coerceAtLeast(120.dp)
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                // widthIn before fillMaxWidth: the sheet stays a 760 dp centred panel
+                // on the 1920 px head unit instead of stretching edge to edge.
                 .widthIn(max = 760.dp)
-                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                .fillMaxWidth()
+                // Static lift over the scrim; nothing here animates the shadow.
+                .shadow(elevation = 28.dp, shape = panelShape, clip = false)
+                .clip(panelShape)
                 .background(CardColor)
                 .clickable(interactionSource = panelInteraction, indication = null) {}
                 .padding(top = 10.dp),
@@ -1002,7 +1063,7 @@ private fun SessionActionsSheet(
                 Text(
                     text = title,
                     color = TextPrimary,
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1042,11 +1103,11 @@ private fun SessionActionsSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .height(56.dp)
                     .clickable(onClick = onClose),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Fechar", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text("Fechar", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Normal)
             }
         }
     }
@@ -1060,7 +1121,7 @@ private fun ActionRow(action: CustomAction, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(56.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (pressed) CardColorPressed else Color.Transparent)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -1078,7 +1139,7 @@ private fun ActionRow(action: CustomAction, onClick: () -> Unit) {
             text = action.title.ifBlank { action.action },
             color = if (highlighted) Accent else TextPrimary,
             fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1102,17 +1163,27 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Float) -> Unit)
         Text(
             text = formatTime(positionMs),
             color = TextSecondary,
-            fontSize = 11.sp,
-            modifier = Modifier.width(44.dp),
+            fontSize = 12.sp,
+            modifier = Modifier.width(46.dp),
         )
         BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .height(48.dp)
+                // Tap and drag share one detector: the strip is 48 dp tall, so the whole
+                // area scrubs and the 5 dp track never has to be hit exactly.
                 .pointerInput(durationMs) {
-                    detectTapGestures { offset ->
-                        if (durationMs > 0L) {
-                            onSeek((offset.x / size.width).coerceIn(0f, 1f))
+                    if (durationMs <= 0L) return@pointerInput
+                    awaitEachGesture {
+                        fun seekAt(x: Float) {
+                            onSeek((x / size.width.coerceIn(1, Int.MAX_VALUE)).coerceIn(0f, 1f))
+                        }
+                        val down = awaitFirstDown()
+                        seekAt(down.position.x)
+                        down.consume()
+                        drag(down.id) { change ->
+                            seekAt(change.position.x)
+                            change.consume()
                         }
                     }
                 },
@@ -1121,24 +1192,24 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Float) -> Unit)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
                     .background(TrackColor),
             ) {
                 Box(
                     Modifier
                         .fillMaxWidth(fraction)
-                        .height(4.dp)
+                        .height(5.dp)
                         .background(Accent),
                 )
             }
             if (durationMs > 0L) {
-                val thumbX = (maxWidth * fraction - 5.dp)
-                    .coerceIn(0.dp, (maxWidth - 10.dp).coerceAtLeast(0.dp))
+                val thumbX = (maxWidth * fraction - 6.dp)
+                    .coerceIn(0.dp, (maxWidth - 12.dp).coerceAtLeast(0.dp))
                 Box(
                     modifier = Modifier
                         .offset(x = thumbX)
-                        .size(10.dp)
+                        .size(12.dp)
                         .clip(CircleShape)
                         .background(Accent),
                 )
@@ -1147,8 +1218,8 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Float) -> Unit)
         Text(
             text = formatTime(durationMs),
             color = TextSecondary,
-            fontSize = 11.sp,
-            modifier = Modifier.width(44.dp),
+            fontSize = 12.sp,
+            modifier = Modifier.width(46.dp),
             textAlign = TextAlign.End,
         )
     }
@@ -1172,8 +1243,8 @@ private fun CircleButton(
             .background(
                 when {
                     !filled -> if (pressed) CardColorPressed else CardColor
-                    pressed -> Color.White.copy(alpha = 0.75f)
-                    else -> Color.White
+                    pressed -> Accent.copy(alpha = 0.82f)
+                    else -> Accent
                 },
             )
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
@@ -1183,7 +1254,7 @@ private fun CircleButton(
             painter = painterResource(iconRes),
             contentDescription = description,
             modifier = Modifier.size(iconSize),
-            tint = if (filled) Color.Black else TextPrimary,
+            tint = if (filled) Color.White else TextPrimary,
         )
     }
 }
@@ -1196,13 +1267,7 @@ private fun StationButton(available: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .height(48.dp)
             .clip(RoundedCornerShape(50))
-            .background(
-                when {
-                    !available -> CardColor
-                    pressed -> Accent.copy(alpha = 0.85f)
-                    else -> Accent
-                },
-            )
+            .background(if (pressed) TrackColor else CardColorPressed)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1211,13 +1276,13 @@ private fun StationButton(available: Boolean, onClick: () -> Unit) {
             painter = painterResource(R.drawable.ic_plus),
             contentDescription = null,
             modifier = Modifier.size(18.dp),
-            tint = if (available) Color.White else TextSecondary,
+            tint = if (available) Accent else TextSecondary,
         )
         Spacer(Modifier.width(8.dp))
         Text(
             text = "Criar estação",
-            color = if (available) Color.White else TextSecondary,
-            fontSize = 14.sp,
+            color = if (available) TextPrimary else TextSecondary,
+            fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
@@ -1264,17 +1329,18 @@ private fun ItemArtwork(uri: String?, size: Dp) {
 }
 
 @Composable
-private fun PlayerArtwork(bitmap: Bitmap?, size: Dp, corner: Dp = 12.dp) {
+private fun PlayerArtwork(bitmap: Bitmap?, size: Dp, corner: Dp = 12.dp, elevation: Dp = 0.dp) {
     val shape = RoundedCornerShape(corner)
+    val modifier = Modifier.size(size).shadow(elevation, shape).clip(shape)
     if (bitmap != null) {
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
-            modifier = Modifier.size(size).clip(shape),
+            modifier = modifier,
             contentScale = ContentScale.Crop,
         )
     } else {
-        PlaceholderArt(size, corner)
+        Box(modifier) { PlaceholderArt(size, corner) }
     }
 }
 
@@ -1395,7 +1461,7 @@ private fun PaneButton(text: String, primary: Boolean, onClick: () -> Unit) {
             text = text,
             color = if (primary) Color.White else TextPrimary,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
@@ -1406,4 +1472,51 @@ private fun formatTime(millis: Long): String {
     val minutes = totalSeconds / 60L
     val seconds = totalSeconds % 60L
     return "%d:%02d".format(minutes, seconds)
+}
+
+/**
+ * Full-player backdrop: the cover's average hue sunk to a dark tint, so each track gets
+ * a different (but still black-ish) background. Falls back to the accent-red gradient
+ * while the session has no artwork or the bitmap cannot be read (hardware bitmap).
+ */
+private fun nowPlayingBackdrop(bitmap: Bitmap?): List<Color> {
+    val fallback = listOf(Color(0xFF2A1014), Color(0xFF140A0C), Background)
+    if (bitmap == null || bitmap.isRecycled) return fallback
+    return runCatching {
+        val stepX = (bitmap.width / 8).coerceAtLeast(1)
+        val stepY = (bitmap.height / 8).coerceAtLeast(1)
+        var red = 0L
+        var green = 0L
+        var blue = 0L
+        var samples = 0
+        var y = stepY / 2
+        while (y < bitmap.height) {
+            var x = stepX / 2
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                if (((pixel ushr 24) and 0xFF) >= 0x80) {
+                    red += (pixel shr 16) and 0xFF
+                    green += (pixel shr 8) and 0xFF
+                    blue += pixel and 0xFF
+                    samples++
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+        if (samples == 0) return@runCatching fallback
+        val hsv = FloatArray(3)
+        AndroidColor.RGBToHSV(
+            (red / samples).toInt(),
+            (green / samples).toInt(),
+            (blue / samples).toInt(),
+            hsv,
+        )
+        hsv[1] = hsv[1].coerceIn(0.22f, 0.62f)
+        hsv[2] = 0.34f
+        val top = Color(AndroidColor.HSVToColor(hsv))
+        hsv[2] = 0.16f
+        val middle = Color(AndroidColor.HSVToColor(hsv))
+        listOf(top, middle, Background)
+    }.getOrDefault(fallback)
 }
