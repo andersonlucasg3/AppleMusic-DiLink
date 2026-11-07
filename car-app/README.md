@@ -9,6 +9,21 @@ The UI is designed for touch (1920x1080, API 29): targets >= 48 dp, large type a
 most **two navigation levels** (tab root -> one detail list). The mini player is fixed at
 the bottom; `screenOrientation="sensorLandscape"`.
 
+## Visual system
+
+- Canvas `#0A0A0B` (player bar `#000000`), surfaces `#1C1C1E` / `#2C2C2E`, primary type
+  `#FFFFFF`, secondary `#8E8E93`, single accent `#FA243C`.
+- Card and player corners 14–16 dp, page padding 24 dp, section gap 28 dp.
+- Type is **Inter 400/500/600/700**, bundled as static TTFs in `res/font` with the SIL
+  OFL license in `res/raw/inter_license.txt`. `AppleMusicCarTheme` provides it through
+  `LocalTextStyle`, so every `Text` uses it; the platform font is the fallback for
+  glyphs Inter does not cover.
+- Cards are square, full-bleed artwork with a bottom scrim and a short title/subtitle.
+  Press state is a colour wash plus a 0.97 scale — no animated shadow. Coil requests the
+  exact target size, never the full CDN image.
+- Top tabs use an accent underline; the account entry is a quiet icon + label. Error
+  panes show a 76 dp accent icon, a bold headline and a legible explanation.
+
 ## Layout
 
 - `:core` — the shared `MediaBrowserClient`, `BrowseItem`, `Section`,
@@ -18,22 +33,25 @@ the bottom; `screenOrientation="sensorLandscape"`.
 
 ## Screens
 
-- **Início / Rádio** — `LazyColumn` of shelves, each a `LazyRow` of large artwork cards
-  plus a "Ver tudo" card. Tapping a playable card starts it (`playFromMediaId`);
-  browsable-only cards (radio genres) open the detail level.
+- **Início / Rádio** — `LazyColumn` of shelves, each a `LazyRow` of large square artwork
+  cards (bottom scrim + title/subtitle) plus a "Ver tudo" card. Tapping a playable card
+  starts it (`playFromMediaId`); browsable-only cards (radio genres) open the detail
+  level.
 - **Biblioteca** — the engine's category list (Biblioteca (Aleatória), Adições Recentes,
   Playlists, Artistas, ...). Tapping a category opens its items; playable rows play.
 - **Detalhe** — one level only, with breadcrumb (e.g. `Biblioteca / Playlists`), back
   button and item count. Playable rows play; a browsable-only row at this level shows
   "Use o app do Apple Music para abrir mais níveis" instead of stacking a third level.
-- **Tocando agora** — fixed bottom bar: cover, title/artist, touch seek bar, previous /
-  play-pause / next and a "Criar estação" button (enabled only while the session
-  publishes `CREATE_STATION`; sends it through `sendCustomAction`).
+- **Tocando agora** — fixed bottom bar over black: rounded cover, title/artist, a 4 dp
+  progress bar with elapsed/total times and a 48 dp touch strip + thumb, circular
+  previous / play-pause (white) / next controls, and "Criar estação" as the accent pill
+  (enabled only while the session publishes `CREATE_STATION`; sends it through
+  `sendCustomAction`).
 - **Entrar na conta** — explicit intent to
   `com.apple.android.music/.common.MainActivity` (the engine is hidden from the
   launcher). Shown in the top bar and in the failure pane when the engine is installed.
 - Error states: "Apple Music não instalado neste dispositivo" and the core's
-  "serviço indisponível" messages, each with "Tentar de novo".
+  "serviço indisponível" messages, each with icon, explanation and "Tentar de novo".
 
 ## Build
 
@@ -75,34 +93,34 @@ verifies the certificate.
 Signed with Morphe and installed with `adb install -r` on:
 
 - **Phone** SM-S921B (`RXCX100BZ5J`), API 36, 1080x2340 @ 480 dpi — the car UI rotates to
-  landscape (780x360 dp, compact cards).
-- **TV** MiTV-AFMU0 (`100.74.105.35:5555`), API 34, 1920x1080 override @ 320 dpi —
-  navigated only with `adb shell input tap` (no remote).
+  landscape (780x360 dp, compact cards). Navigation and seek were driven only with
+  `adb shell input tap`.
+- **TV** MiTV-AFMU0 (`100.74.105.35:5555`), API 34, 1920x1080 override @ 320 dpi
+  (960x540 dp) — used as a stand-in for the 1080p head-unit layout.
 
-Evidence in `.pipeline/`:
+The BYD DiLink (`100.74.124.38:5555`) Tailscale peer went offline during this run
+(last seen 14 min before the phone pass, retried repeatedly), so **the car install
+remains UNVERIFIED**.
+
+Evidence in `.pipeline/car-app/`:
 
 | flow | file |
 |---|---|
-| Início, shelves + artwork | `car-app-02-home.png`, `car-app-13-tv-home2.png` |
-| Biblioteca (categories) | `car-app-03-library.png`, `car-app-14-tv-library.png` |
-| Detalhe Playlists + breadcrumb | `car-app-05-library-playlists.png`, `car-app-15b-tv-playlists.png` |
-| Rádio / Rádio por Gênero | `car-app-09-radio.png`, `car-app-20-tv-radio.png` |
-| Rádio -> gênero (nível 1) | `car-app-10-radio-genre.png` |
-| Ver tudo (Início) | `car-app-29-phone-seeall.png`, `car-app-30-phone-back-home.png` |
-| Play a partir de card/lista | `car-app-06-play-playlist.png`, `car-app-16-tv-play.png` |
-| Criar estação (`CREATE_STATION`) | `car-app-07-create-station.png` |
-| Seek por toque | `car-app-08-seek.png` (5:16/10:56), `car-app-22-tv-paused.png` (5:28/10:56) |
-| Play/pause, progresso, next/prev | `car-app-25-phone-progress.png`, `car-app-26-phone-paused.png`, `car-app-27-phone-next.png`, `car-app-28-phone-prev.png` |
-| Entrar na conta | `car-app-11-account.png` (`…/.common.MainActivity` focused) |
-| Sessão final tocando | `car-app-32-phone-final.png` |
+| Início, scrim cards, playing | `revamp-phone-home.png`, `revamp-tv-home.png` |
+| Biblioteca (categories) | `revamp-phone-library.png` |
+| Rádio por Gênero | `revamp-phone-radio.png` |
+| Detalhe + breadcrumb | `revamp-phone-detail.png` |
+| Seek por toque (5:49/10:56) | `revamp-phone-seek.png` |
+| Tocando agora (playing) | `revamp-phone-home.png`, `revamp-phone-player.png` |
+| Estado de erro com ícone | `revamp-tv-error.png` |
 
-`logcat` was clean for `com.anderson.applemusic.car` (no `AndroidRuntime`/`FATAL`), and
-the engine session was left playing.
+`logcat` is clean for the app: `revamp-logcat.txt` has no `FATAL EXCEPTION` /
+`AndroidRuntime` entries. The phone session was left playing.
 
 ## What is missing on the real DiLink
 
-The head unit is not reachable from this machine, so **everything was validated on the
-phone and the TV only; the DiLink is UNVERIFIED**. Still to check there:
+The head unit was **unreachable during this run**, so the revamp was proven only on the
+phone and on a 1080p TV at the head-unit resolution. Still to check there:
 
 - Real screen: 1920x1080 @ ? dpi, status/navigation insets (the phone adds a cutout
   inset; the TV has none).
@@ -114,8 +132,6 @@ phone and the TV only; the DiLink is UNVERIFIED**. Still to check there:
 
 ## Known limitations
 
-- Inter is not bundled in the repo yet, so the UI uses `FontFamily.Default`; the colour
-  tokens are already the ROADMAP ones (`#0A0A0B` background, `#FA243C` accent).
 - No search: the Android Auto browse tree exposes no search surface (same as `:tv-app`).
 - Two levels by design; deeper nodes are not reachable from this UI.
 - Some engine sessions publish `PLAYING` without `position`/`duration` (or stay
