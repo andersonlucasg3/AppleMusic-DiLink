@@ -63,10 +63,12 @@ Documento de planejamento. O produto são **apps próprios** que usam o Apple Mu
 - Aceite: instalação limpa num device → login → volta ao companion logado.
 
 ### Fase 5 — Distribuição
-- [ ] Workflow de release por tag: assina engine (por ABI) e companions com os secrets `MORPHE_*`.
-- [ ] Artefatos: `AppleMusic-engine-arm32.apk`, `AppleMusic-engine-arm64.apk`,
+- [x] Workflow de release de APKs (`workflow_dispatch`, release `apps-<version>`): assina o engine
+  por ABI e os companions com os secrets `MORPHE_*`; o `.mpp` não é mais publicado.
+- [x] Artefatos: `AppleMusic-engine-arm32.apk`, `AppleMusic-engine-arm64.apk`,
   `AppleMusic-TV.apk`, `AppleMusic-Car.apk` + `SHA256SUMS`.
-- [ ] README de instalação (ordem, assinatura, desinstalar o oficial).
+- [x] README de instalação (ordem engine→companion, assinatura única, desinstalar o oficial).
+- [ ] Primeiro run real do workflow com `ENGINE_SOURCE_URL` e instalação limpa nos dois devices.
 - Aceite: instalação limpa seguindo o README, sem ADB além do install.
 
 ### Fase 6 — UI revamp (identidade Apple Music)

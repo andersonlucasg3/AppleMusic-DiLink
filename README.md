@@ -133,52 +133,50 @@ Artefatos gerados em `patches/build/libs/`:
 > automaticamente para compilação in-process (o build continua verde). Para evitar o erro no log:
 > `.\gradlew.bat :patches:build "-Pkotlin.compiler.execution.strategy=in-process"`.
 
-### Build via GitHub Actions
-
-Quando não há JVM utilizável no local (por exemplo, no próprio Android), o workflow
-[`.github/workflows/build.yml`](.github/workflows/build.yml) roda:
-
-```sh
-./gradlew clean :patches:generatePatchesList :patches:buildAndroid --no-daemon
-```
-
-e publica `patches/build/libs/*.mpp` + `patches-list.json` como artefato (`if-no-files-found:
-error`). Roda em `workflow_dispatch` (artifact) e em push de tag `v*`; no caso da tag ele também
-cria a release — ver [Publicação (CI)](#publicação-ci).
-
-Requer o secret de repositório **`GPR_KEY`** (token com `read:packages`, para o registry
-`maven.pkg.github.com/MorpheApp/registry`) e, opcionalmente, **`GPR_USER`**. O `GITHUB_TOKEN`
-padrão do repositório não tem acesso aos pacotes de outra organização. O JDK 21 e o SDK Android
-(`platforms;android-36`, `build-tools;36.0.0`) são instalados no runner.
-
 ## Publicação (CI)
 
-Um push de tag `v*` (ex.: `v1.3.0`) builda e publica a release `v1.3.0` em **uma única execução**
-do workflow, anexando `patches/build/libs/*.mpp` e `patches-list.json`. Se houver fonte de APK, o
-mesmo job também gera e anexa `AppleMusic-<versão>-AndroidTV-arm32.apk` — o **engine** 32-bit
-(base + `armeabi_v7a` + `xhdpi` mergeados pelo APKEditor 1.4.9 e patcheados pela CLI do
-morphe-desktop 2.1.1 com o launcher oculto), validado com `aapt2 dump badging` (sem
-`launchable-activity`, `native-code: 'armeabi-v7a'`) e `apksigner verify --print-certs`
-(`CN=Morphe`). Sem fonte, a release sai só com o bundle.
+O workflow [`.github/workflows/build.yml`](.github/workflows/build.yml) é de **release de APKs**;
+o bundle `.mpp` não é mais publicado. Ele roda só por `workflow_dispatch`:
 
-As notas da release são a seção `description` do [`patches-bundle.json`](patches-bundle.json),
-copiada tal e qual — atualize-a antes de taguear. O job falha se um asset esperado não existir; a
-publicação não é silenciada.
+| Input | Obrigatório | Default | O que faz |
+|---|---|---|---|
+| `version` | sim | — | versão da release `apps-<version>` (ex.: `1.5.1`, sem o `v`) |
+| `source_url` | não | `secrets.ENGINE_SOURCE_URL` | URL do APKM 4-ABI; vazio = release só com os companions |
+| `publish` | não | `true` | `false` = só artifacts, sem release |
 
-O `workflow_dispatch` tem os inputs opcionais `version` (sem o `v`) e `source_url`. Com `version`,
-ele também publica a release (o `gh` cria a tag); sem `version`, só gera o artifact.
+O job:
+
+1. builda com `:patches:buildAndroid :tv-app:assembleRelease :car-app:assembleRelease`
+   (`-Xmx4096m -XX:MaxMetaspaceSize=1024m`: o `mergeExtDex` dos companions estoura o heap padrão
+   de ~2 GB do runner);
+2. assina `AppleMusic-TV.apk` e `AppleMusic-Car.apk` com o p12 dos secrets `MORPHE_*` via
+   `apksigner` e valida `CN=Morphe` + SHA-256 do certificado;
+3. com `source_url`, baixa o APKM, monta `splits32` (base + `config.armeabi_v7a` + `config.xhdpi`)
+   e `splits64` (base + `config.arm64_v8a` + `config.xhdpi`), mergeia com o APKEditor 1.4.9 e aplica
+   o `.mpp` com a CLI do morphe-desktop 2.1.1 (`--unsigned -e "DiLink: hide engine launcher"`). A
+   assinatura do morphe-desktop **não** é usada: o APK é re-assinado com o p12 e validado com
+   `aapt2 dump badging` (ABI certa e **sem** `launchable-activity` de `com.apple.android.music`);
+4. publica `apps-<version>` com `AppleMusic-engine-arm32.apk`, `AppleMusic-engine-arm64.apk`,
+   `AppleMusic-TV.apk`, `AppleMusic-Car.apk` e `SHA256SUMS`.
+
+Sem `source_url` (e sem `ENGINE_SOURCE_URL`) o job **não falha**: publica só os dois companions e a
+release abre com o aviso **engine não anexado**. Com URL preenchida, qualquer falha no engine
+derruba o job — engine quebrado não é publicado.
 
 Secrets:
 
+- **`MORPHE_KEYSTORE_P12`** (obrigatório) — base64 do PKCS#12 `CN=Morphe`; **`MORPHE_KEYSTORE_PASSWORD`**,
+  **`MORPHE_KEY_ALIAS`** e **`MORPHE_KEY_PASSWORD`** — credenciais desse certificado. É o cert do
+  `sharedUserId`; perdê-lo quebra o UID compartilhado.
 - **`GPR_KEY`** (obrigatório) — token com `read:packages` para `app.morphe:morphe-patcher` no
   GitHub Packages; **`GPR_USER`** (opcional) — conta do token. O `GITHUB_TOKEN` padrão do
   repositório não lê pacotes de outra organização.
-- **`TV_SOURCE_URL`** (opcional) — URL do APKM/XAPK 4-ABI usado no APK do engine 32-bit; o input
-  `source_url` do dispatch tem precedência. Sem ela, a release publica só `.mpp` +
-  `patches-list.json`.
+- **`ENGINE_SOURCE_URL`** (opcional) — URL estável do APKM 4-ABI; o input `source_url` tem
+  precedência.
 
-A release é criada pelo `gh` com o `github.token` do próprio workflow (o job declara
-`permissions: contents: write`); não é preciso PAT extra.
+A release é criada/atualizada pelo `gh` com o `github.token` do próprio workflow (o job declara
+`permissions: contents: write`); não é preciso PAT extra. As notas saem de um template do próprio
+workflow (ordem de instalação, cert único e limitações).
 
 ## Aplicar o bundle localmente (sem celular)
 
@@ -228,13 +226,11 @@ Outros comandos úteis da CLI (`java -jar tools\morphe-desktop-2.1.1-all.jar --h
 
 ## Usar no app Morphe (Android)
 
-O bundle é publicado em [releases](https://github.com/andersonlucasg3/apple-music-android-freedom/releases)
-e o repositório serve como *patch source*:
+O bundle `.mpp` **não é mais publicado** nos releases (o produto agora são os APKs — ver
+[Publicação (CI)](#publicação-ci)). Para usar no Morphe, gere o bundle localmente:
 
-- **Remote**: no Morphe → **Sources** → **+** → Remote →
-  `github.com/andersonlucasg3/apple-music-android-freedom`.
-- **Local**: baixe `patches-1.3.0.mpp` do release e abra no Morphe, ou
-  `adb push patches-1.3.0.mpp /sdcard/Download/` e abra o arquivo no aparelho.
+- **Local**: `.\gradlew.bat :patches:buildAndroid` gera `patches/build/libs/patches-<versão>.mpp`;
+  abra o arquivo no Morphe ou `adb push patches/build/libs/patches-<versão>.mpp /sdcard/Download/`.
 
 O Apple Music não é distribuído por este repositório, então o Morphe não oferece link de
 download: forneça o **XAPK 7.0.0 (vc 1614)** na tela de seleção de APK. O Manager funde os
@@ -286,7 +282,7 @@ Xiaomi validado) são 32-bit: o APK só instala com `lib/armeabi-v7a`, e um bund
 java -jar tools\APKEditor-1.4.9.jar m -i .pipeline\tv\splits32 -o .pipeline\tv\merged32.apk
 java -jar tools\morphe-desktop-2.1.1-all.jar patch `
   -p patches\build\libs\patches-1.4.0.mpp `
-  -o .pipeline\release\AppleMusic-1.4.0-AndroidTV-arm32.apk `
+  -o .pipeline\release\AppleMusic-engine-arm32.apk `
   .pipeline\tv\merged32.apk `
   -e "DiLink: hide engine launcher"
 ```
@@ -295,10 +291,10 @@ Conferir o APK de saída (build-tools 36.0.0):
 
 ```powershell
 & "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\aapt2.exe" dump badging `
-  .pipeline\release\AppleMusic-1.4.0-AndroidTV-arm32.apk | Select-String `
+  .pipeline\release\AppleMusic-engine-arm32.apk | Select-String `
   "launchable-activity|native-code|sdkVersion"
 & "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.0.0\apksigner.bat" verify --print-certs `
-  .pipeline\release\AppleMusic-1.4.0-AndroidTV-arm32.apk
+  .pipeline\release\AppleMusic-engine-arm32.apk
 ```
 
 Esperado: nenhum `launchable-activity` (o engine não aparece no launcher),
@@ -306,13 +302,14 @@ Esperado: nenhum `launchable-activity` (o engine não aparece no launcher),
 
 ### Instalação
 
-O engine sai no asset do release (`AppleMusic-<versão>-AndroidTV-arm32.apk`) ou é gerado
-localmente. Instale o engine e depois o companion (`AppleMusic-TV.apk` / `AppleMusic-Car.apk`) por
-ADB ou por um app de transferência de arquivos:
+O engine sai no release (`AppleMusic-engine-arm32.apk` para TV 32-bit,
+`AppleMusic-engine-arm64.apk` para arm64) ou é gerado localmente. Instale o engine e depois o
+companion (`AppleMusic-TV.apk` / `AppleMusic-Car.apk`) por ADB ou por um app de transferência de
+arquivos:
 
 ```powershell
 adb connect <ip-da-tv>:5555
-adb install -r .pipeline\release\AppleMusic-1.4.0-AndroidTV-arm32.apk
+adb install -r AppleMusic-engine-arm32.apk
 adb install -r AppleMusic-TV.apk
 ```
 
